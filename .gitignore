@@ -1,0 +1,87 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# VS Code
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Docker
+*.pid
+docker-compose*.yml
+.env
+
+# MacOS
+.DS_Store
+
+# Misc
+*.swp
+*.swo
+
+# Ignore local environment files
+.env.*
+
+# Ignore compiled shared objects
+*.pyd
+
+# Ignore agent outputs
+agents/__pycache__/
+utils/__pycache__/
+
+# Ignore requirements lock files
+poetry.lock
+Pipfile.lock

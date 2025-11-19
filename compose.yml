@@ -1,0 +1,9 @@
+services:
+  llm-sandbox:
+    build: .
+    container_name: llm-sandbox
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    tty: true
+    stdin_open: true
