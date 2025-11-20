@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.1")
 
 
-def run_shell(command: str) -> dict:
+def run_shell(command: str, workdir: str | None = None) -> dict:
     """Execute a shell command and capture output."""
     try:
         # Explicitly pass current environment (including secrets)
@@ -22,6 +22,7 @@ def run_shell(command: str) -> dict:
         result = subprocess.run(
             command,
             shell=True,
+            cwd=workdir or os.getcwd(),
             capture_output=True,
             text=True,
             timeout=120,
@@ -225,14 +226,19 @@ def handle_ask_human(ask: dict, history: list) -> None:
         )
 
 
-def run_worker(goal: str):
+def run_worker(goal: str, workdir: str | None = None):
     """
     Run the Worker agent for a given goal.
+
+    Args:
+        goal: The natural-language step description for the Worker.
+        workdir: Directory in which all shell commands should execute.
 
     Returns:
         history: list of dicts describing each executed command.
     """
     history = []
+    base_dir = workdir or os.getcwd()
 
     for step in range(30):  # safety limit
         llm_output = call_llm(goal, history)
@@ -257,7 +263,7 @@ def run_worker(goal: str):
             print("Agent finished (no further command).")
             break
 
-        result = run_shell(command)
+        result = run_shell(command, workdir=base_dir)
         print("Command output:")
         print(result["stdout"])
         print(result["stderr"])
@@ -270,14 +276,9 @@ def run_worker(goal: str):
 
     return history
 
-
 def main():
-    """
-    CLI entrypoint: prompt the human for a goal, then run the worker.
-    """
     goal = input("Enter agent goal: ")
     run_worker(goal)
-
 
 
 if __name__ == "__main__":
