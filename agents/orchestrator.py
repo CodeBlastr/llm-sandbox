@@ -7,6 +7,76 @@ from agents.planner import plan as planner_plan
 from agents.worker import run_worker
 from agents.reviewer import review
 from utils.logger import log
+from utils.memory import update_project_memory
+
+
+MAX_REPAIR_ATTEMPTS = 2
+
+
+def has_blocking_issues(review_data: dict) -> bool:
+    issues = review_data.get("issues", []) if isinstance(review_data, dict) else []
+    for issue in issues:
+        severity = str(issue.get("severity", "")).lower()
+        if severity in {"medium", "high"}:
+            return True
+    return False
+
+
+def build_execution_summary(execution_results: list) -> str:
+    """Render execution history into a text blob for the Reviewer."""
+    execution_text = ""
+    for result in execution_results:
+        attempt_label = result.get("attempt", "initial")
+        execution_text += f"\n--- Attempt: {attempt_label} | Step {result.get('step_id')} ---\n"
+        execution_text += f"Description: {result.get('description', '')}\n"
+        for cmd in result.get("worker_history", []):
+            execution_text += f"COMMAND: {cmd.get('command', '')}\n"
+            execution_text += f"RETURN CODE: {cmd.get('returncode', '')}\n"
+            execution_text += f"STDOUT:\n{cmd.get('stdout', '')}\n"
+            execution_text += f"STDERR:\n{cmd.get('stderr', '')}\n"
+    return execution_text
+
+
+def build_fix_request(goal: str, project_dir: Path, review_data: dict) -> str:
+    issues = review_data.get("issues", []) if isinstance(review_data, dict) else []
+    suggestions = review_data.get("suggestions", []) if isinstance(review_data, dict) else []
+    return (
+        "Repair request for existing project.\n"
+        f"Project directory: {project_dir}\n"
+        f"Original goal: {goal}\n\n"
+        f"Reviewer flagged issues (JSON): {json.dumps(issues, indent=2)}\n"
+        f"Reviewer suggestions: {json.dumps(suggestions, indent=2)}\n"
+        "Return a revised plan JSON that will fix the issues in-place."
+    )
+
+
+def execute_steps(steps: list, project_dir: Path, attempt_label: str) -> list:
+    execution_results = []
+    for step in steps:
+        step_id = step.get("id")
+        description = step.get("description", "")
+
+        log(
+            msg=f"Executing step {step_id} ({attempt_label}):\n{description}",
+            prefix="ORCH EXECUTE STEP"
+        )
+
+        worker_history = run_worker(description, workdir=str(project_dir))
+
+        execution_results.append({
+            "attempt": attempt_label,
+            "step_id": step_id,
+            "description": description,
+            "worker_history": worker_history
+        })
+
+        log(
+            msg=f"Step {step_id} ({attempt_label}) completed. History length: {len(worker_history)}",
+            prefix="ORCH STEP DONE"
+        )
+
+    return execution_results
+
 
 def slugify(text: str) -> str:
     """
@@ -48,6 +118,7 @@ def make_run_filename(goal: str) -> Path:
     runs_dir.mkdir(exist_ok=True)
 
     return runs_dir / filename
+
 
 def build_how_to_test(goal: str, project_dir: Path) -> str:
     """
@@ -104,19 +175,39 @@ def write_project_summary(
     planner_json: dict,
     execution_results: list,
     review_data: dict,
+    repair_attempts: int = 0,
+    plans: dict | None = None,
+    status: str | None = None,
+    blocking_issues_remaining: bool | None = None,
+    started_at: str | None = None,
+    completed_at: str | None = None,
+    final_plan: dict | None = None,
 ) -> None:
     """
     Write a PROJECT_INFO.json file into the project directory containing:
       - goal
-      - plan (planner JSON)
+      - plan (initial planner JSON)
+      - plans (initial + repair plans)
       - review (structured reviewer JSON)
       - how_to_test (detailed instructions)
+      - repair_attempts (number of repair passes executed)
+      - execution_results (history across attempts)
+      - status / blocking_issues_remaining
+      - started_at / completed_at timestamps
     """
     summary = {
         "goal": goal,
         "project_dir": str(project_dir),
         "plan": planner_json,
         "review": review_data,
+        "plans": plans or {},
+        "execution_results": execution_results,
+        "repair_attempts": repair_attempts,
+        "status": status,
+        "blocking_issues_remaining": blocking_issues_remaining,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "final_plan": final_plan,
         "how_to_test": build_how_to_test(goal, project_dir),
     }
 
@@ -138,16 +229,17 @@ def orchestrate(goal: str):
       - Returns a summary
     """
 
+    started_at = datetime.datetime.utcnow().isoformat()
     log(f"ORCHESTRATOR START — CEO GOAL:\n{goal}", prefix="ORCH START")
 
     project_dir = make_project_dir(goal)
+    project_id = project_dir.name
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
 
-    # 1) Call Planner
+    # 1) Call Planner (initial plan)
     planner_output = planner_plan(goal)
     log(f"PLANNER OUTPUT RAW:\n{planner_output}", prefix="ORCH PLANNER RAW")
 
-    # 2) Parse Planner JSON
     try:
         planner_json = json.loads(planner_output)
     except Exception as e:
@@ -160,72 +252,126 @@ def orchestrate(goal: str):
 
     log(f"PARSED {len(steps)} STEPS FROM PLANNER", prefix="ORCH PARSED")
 
-    execution_results = []
+    combined_plans = {"initial_plan": planner_json, "repair_plans": []}
 
-    # 3) Execute each step via Worker
-    for step in steps:
-        step_id = step.get("id")
-        description = step.get("description", "")
+    # 2) Execute initial plan
+    execution_results = execute_steps(steps, project_dir, attempt_label="initial")
 
-        log(
-            msg=f"Executing step {step_id}:\n{description}",
-            prefix="ORCH EXECUTE STEP"
-        )
-
-        worker_history = run_worker(description, workdir=str(project_dir))
-
-        execution_results.append({
-            "step_id": step_id,
-            "description": description,
-            "worker_history": worker_history
-        })
-
-        log(
-            msg=f"Step {step_id} completed. History length: {len(worker_history)}",
-            prefix="ORCH STEP DONE"
-        )
-
-    # Generate a text execution summary for Reviewer
-        # Generate a text execution summary for Reviewer
-    execution_text = ""
-    for result in execution_results:
-        execution_text += f"\n--- Step {result['step_id']} ---\n"
-        execution_text += f"Description: {result['description']}\n"
-        for cmd in result["worker_history"]:
-            execution_text += f"COMMAND: {cmd['command']}\n"
-            execution_text += f"RETURN CODE: {cmd['returncode']}\n"
-            execution_text += f"STDOUT:\n{cmd['stdout']}\n"
-            execution_text += f"STDERR:\n{cmd['stderr']}\n"
-
-    # Call Reviewer agent
+    # 3) First review
+    execution_text = build_execution_summary(execution_results)
+    planner_payload_for_review = json.dumps(combined_plans)
     review_json = review(
         goal=goal,
-        planner_json=planner_output,
+        planner_json=planner_payload_for_review,
         execution_summary=execution_text,
     )
-
     log(msg=f"REVIEWER OUTPUT:\n{review_json}", prefix="ORCH REVIEW")
-
     review_data = json.loads(review_json)
 
-    # 🔥 NEW: write PROJECT_INFO.json into the project directory
+    # 4) Repair loop
+    repair_attempts = 0
+    while has_blocking_issues(review_data) and repair_attempts < MAX_REPAIR_ATTEMPTS:
+        repair_attempts += 1
+        log(
+            msg=f"Starting repair attempt {repair_attempts}",
+            prefix="ORCH REPAIR START",
+        )
+
+        fix_request = build_fix_request(goal, project_dir, review_data)
+        repair_plan_output = planner_plan(fix_request)
+        log(
+            msg=f"Repair planner output (attempt {repair_attempts}):\n{repair_plan_output}",
+            prefix="ORCH REPAIR PLAN RAW",
+        )
+
+        try:
+            repair_plan_json = json.loads(repair_plan_output)
+        except Exception as e:
+            log(
+                msg=f"FAILED TO PARSE REPAIR PLAN JSON: {e}\nContent:\n{repair_plan_output}",
+                prefix="ORCH ERROR",
+            )
+            raise ValueError(f"Invalid repair planner JSON: {e}")
+
+        combined_plans["repair_plans"].append({"attempt": repair_attempts, "plan": repair_plan_json})
+
+        repair_steps = repair_plan_json.get("steps", [])
+        if not repair_steps:
+            log(
+                msg="Repair plan contained no steps; stopping further repair attempts.",
+                prefix="ORCH REPAIR COMPLETE",
+            )
+            break
+
+        execution_results.extend(
+            execute_steps(repair_steps, project_dir, attempt_label=f"repair-{repair_attempts}")
+        )
+
+        execution_text = build_execution_summary(execution_results)
+        review_json = review(
+            goal=goal,
+            planner_json=json.dumps(combined_plans),
+            execution_summary=execution_text,
+        )
+        review_data = json.loads(review_json)
+
+        log(
+            msg=f"Repair attempt {repair_attempts} complete. Reviewer response:\n{review_json}",
+            prefix="ORCH REPAIR COMPLETE",
+        )
+
+    if has_blocking_issues(review_data) and repair_attempts >= MAX_REPAIR_ATTEMPTS:
+        log(
+            msg="Max repair attempts reached; medium/high issues may remain.",
+            prefix="ORCH REPAIR LIMIT",
+        )
+
+    remaining_issues = has_blocking_issues(review_data)
+    status = "success" if not remaining_issues else "needs_review"
+    final_plan = (
+        combined_plans.get("repair_plans", [])[-1].get("plan")
+        if combined_plans.get("repair_plans")
+        else planner_json
+    )
+    completed_at = datetime.datetime.utcnow().isoformat()
+
+    # 5) Write project summary (includes repairs)
     write_project_summary(
         project_dir=project_dir,
         goal=goal,
         planner_json=planner_json,
         execution_results=execution_results,
         review_data=review_data,
+        repair_attempts=repair_attempts,
+        plans=combined_plans,
+        status=status,
+        blocking_issues_remaining=remaining_issues,
+        started_at=started_at,
+        completed_at=completed_at,
+        final_plan=final_plan,
     )
 
     summary = {
         "goal": goal,
-        "steps_executed": len(steps),
+        "project_id": project_id,
+        "project_dir": str(project_dir),
+        "steps_executed": len(execution_results),
+        "repair_attempts": repair_attempts,
         "results": execution_results,
         "review": review_data,
+        "plans": combined_plans,
+        "plan": planner_json,
+        "status": status,
+        "blocking_issues_remaining": remaining_issues,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "final_plan": final_plan,
     }
-
     log(
-        msg=f"ORCHESTRATION COMPLETE — {len(steps)} steps executed. Review included.",
+        msg=(
+            f"ORCHESTRATION COMPLETE — {len(execution_results)} steps executed, "
+            f"repairs attempted: {repair_attempts}. Remaining blocking issues: {remaining_issues}"
+        ),
         prefix="ORCH COMPLETE",
     )
 
@@ -241,6 +387,18 @@ def main():
     output_path = make_run_filename(goal)
     with output_path.open("w") as f:
         json.dump(result, f, indent=2)
+
+    try:
+        project_id = result.get("project_id") or Path(result["project_dir"]).name
+        update_project_memory(
+            project_id=project_id,
+            goal=goal,
+            project_dir=result.get("project_dir", ""),
+            run_summary_path=str(output_path),
+            review_data=result.get("review", {}),
+        )
+    except Exception as e:
+        log(msg=f"Failed to update memory index: {e}", prefix="ORCH MEMORY ERROR")
 
     print("\n=== ORCHESTRATOR SUMMARY ===")
     print(json.dumps(result, indent=2))

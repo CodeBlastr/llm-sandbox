@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
+from utils.memory import summarize_recent_projects
 
 
 load_dotenv()
@@ -46,8 +47,16 @@ def plan(goal: str) -> str:
         A JSON string representing the plan.
     """
     # Log outgoing request (system + user)
+    memory_context = summarize_recent_projects(goal)
+    if memory_context:
+        log(msg=f"Memory context injected:\n{memory_context}", prefix="PLANNER MEMORY")
+
+    user_goal = goal
+    if memory_context:
+        user_goal = f"{goal}\n\nRelevant prior runs:\n{memory_context}"
+
     log(
-        msg=f"SYSTEM PROMPT:\n{SYSTEM_PROMPT}\n\nUSER GOAL:\n{goal}",
+        msg=f"SYSTEM PROMPT:\n{SYSTEM_PROMPT}\n\nUSER GOAL:\n{user_goal}",
         prefix="PLANNER REQUEST"
     )
 
@@ -56,7 +65,7 @@ def plan(goal: str) -> str:
         temperature=0.2,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": goal}
+            {"role": "user", "content": user_goal}
         ]
     )
 

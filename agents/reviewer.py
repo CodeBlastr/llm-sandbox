@@ -3,6 +3,7 @@ import json
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
+from utils.memory import summarize_recent_projects
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -55,11 +56,18 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
     Returns:
         A JSON string with the review.
     """
+    memory_context = summarize_recent_projects(goal)
+    if memory_context:
+        log(msg=f"Memory context injected:\n{memory_context}", prefix="REVIEWER MEMORY")
+
     user_payload = {
         "goal": goal,
         "planner_json": planner_json or "",
         "execution_summary": execution_summary,
     }
+
+    if memory_context:
+        user_payload["memory_context"] = memory_context
 
     user_content = json.dumps(user_payload, indent=2)
 
