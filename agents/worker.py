@@ -11,6 +11,7 @@ load_dotenv(override=True)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.1")
+MAX_PROMPT_CHARS = int(os.getenv("WORKER_MAX_PROMPT_CHARS", "14000"))
 
 
 def run_shell(command: str, workdir: str | None = None) -> dict:
@@ -77,6 +78,7 @@ def build_system_prompt() -> str:
         "  - thoughts: string (your reasoning, for the human to read)\n"
         "You MAY also include an optional key:\n"
         "  - ask_human: object with keys {question: string, key_name: string, storage: string}\n"
+        "  - needs_human: object with keys {reason: string} to pause automation when you believe human intervention is required.\n"
         "\n"
         "Use ask_human ONLY when you cannot proceed without a human-provided secret "
         "such as an API key.\n"
@@ -119,9 +121,19 @@ def call_llm(goal: str, history: list) -> dict:
         "Decide what to do next. Either:\n"
         "  - Provide the next shell command in 'command', or\n"
         "  - If you cannot proceed without human-provided secrets, use 'ask_human'.\n"
+        "  - If you believe progress is blocked and requires a human decision (e.g., missing permissions, external approval), set 'needs_human' with a reason and leave command empty.\n"
         "The controller will verify that requested secrets exist as environment\n"
         "variables before proceeding."
     )
+
+    prompt_size = len(system_prompt) + len(user_prompt)
+    if prompt_size > MAX_PROMPT_CHARS:
+        msg = (
+            f"Prompt too large ({prompt_size} chars > limit {MAX_PROMPT_CHARS}). "
+            "Manual intervention required before continuing."
+        )
+        log(msg=msg, prefix="WORKER PROMPT LIMIT")
+        raise ValueError(msg)
 
     # Log outgoing request
     log(
@@ -241,7 +253,20 @@ def run_worker(goal: str, workdir: str | None = None):
     base_dir = workdir or os.getcwd()
 
     for step in range(30):  # safety limit
-        llm_output = call_llm(goal, history)
+        try:
+            llm_output = call_llm(goal, history)
+        except Exception as e:
+            log(msg=f"Worker halted due to error: {e}", prefix="WORKER ERROR")
+            history.append(
+                {
+                    "command": "PAUSE_FOR_HUMAN",
+                    "stdout": "",
+                    "stderr": str(e),
+                    "returncode": -1,
+                }
+            )
+            print("Worker paused for human intervention due to error:", e)
+            break
 
         # Check if the model is asking for human input
         ask = llm_output.get("ask_human")
@@ -249,6 +274,21 @@ def run_worker(goal: str, workdir: str | None = None):
             handle_ask_human(ask, history)
             # Do NOT run any shell command this cycle
             continue
+
+        needs_human = llm_output.get("needs_human")
+        if needs_human:
+            reason = needs_human.get("reason", "Human input required.")
+            log(msg=f"Worker requested human intervention: {reason}", prefix="WORKER HUMAN NEEDED")
+            history.append(
+                {
+                    "command": "PAUSE_FOR_HUMAN",
+                    "stdout": "Human intervention requested. Reason: " + reason,
+                    "stderr": "",
+                    "returncode": -2,
+                }
+            )
+            print("Worker paused for human intervention:", reason)
+            break
 
         command = llm_output.get("command", "")
         done = llm_output.get("done", False)
