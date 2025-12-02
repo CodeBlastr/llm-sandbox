@@ -1,0 +1,5 @@
+name = "franchisetalk-com"
+pages_build_output_dir = "."
+
+[env.production]
+route = "franchisetalk.com/*"

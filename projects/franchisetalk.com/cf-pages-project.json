@@ -1,0 +1,9 @@
+{
+  "name": "franchisetalk-com",
+  "production_branch": "main",
+  "build_config": {
+    "build_command": "",
+    "destination_dir": ".",
+    "root_dir": "."
+  }
+}
