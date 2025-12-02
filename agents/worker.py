@@ -11,7 +11,8 @@ load_dotenv(override=True)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.1")
-MAX_PROMPT_CHARS = int(os.getenv("WORKER_MAX_PROMPT_CHARS", "14000"))
+MAX_PROMPT_CHARS = int(os.getenv("WORKER_MAX_PROMPT_CHARS", "5000"))
+HISTORY_CHAR_LIMIT = int(os.getenv("WORKER_HISTORY_CHAR_LIMIT", str(int(MAX_PROMPT_CHARS * 0.6))))
 
 
 def run_shell(command: str, workdir: str | None = None) -> dict:
@@ -79,6 +80,8 @@ def build_system_prompt() -> str:
         "You MAY also include an optional key:\n"
         "  - ask_human: object with keys {question: string, key_name: string, storage: string}\n"
         "  - needs_human: object with keys {reason: string} to pause automation when you believe human intervention is required.\n"
+        "Truth vs fiction rule: treat an action as TRUE only when its result is verifiable (successful command, expected output or secondary source). If a result is not verifiable or fails, treat it as FICTION and simplify; propose the smallest testable next step.\n"
+        "One-step rule: propose exactly one command per response, wait for its result, and do not move on until that step is confirmed (success exit + simple verification if needed). Prefer a short verification command after changes before proceeding. Only set done=true after a verified success.\n"
         "\n"
         "Use ask_human ONLY when you cannot proceed without a human-provided secret "
         "such as an API key.\n"
@@ -106,14 +109,20 @@ def call_llm(goal: str, history: list) -> dict:
     """Send goal + history to the LLM and get the next action."""
     system_prompt = build_system_prompt()
 
-    history_text = ""
-    for step in history:
-        history_text += (
-            f"COMMAND: {step['command']}\n"
-            f"RETURN CODE: {step['returncode']}\n"
-            f"STDOUT:\n{step['stdout']}\n"
-            f"STDERR:\n{step['stderr']}\n\n"
-        )
+    def format_history(entries, limit_chars: int | None = None) -> str:
+        text = ""
+        for step in entries:
+            text += (
+                f"COMMAND: {step['command']}\n"
+                f"RETURN CODE: {step['returncode']}\n"
+                f"STDOUT:\n{step['stdout']}\n"
+                f"STDERR:\n{step['stderr']}\n\n"
+            )
+        if limit_chars and len(text) > limit_chars:
+            text = text[-limit_chars:]
+        return text
+
+    history_text = format_history(history, HISTORY_CHAR_LIMIT)
 
     user_prompt = (
         f"GOAL:\n{goal}\n\n"
@@ -128,12 +137,24 @@ def call_llm(goal: str, history: list) -> dict:
 
     prompt_size = len(system_prompt) + len(user_prompt)
     if prompt_size > MAX_PROMPT_CHARS:
+        last_cmd = history[-1]["command"] if history else "(none)"
+        truncated_history = format_history(history[-3:], int(MAX_PROMPT_CHARS * 0.4))
         msg = (
             f"Prompt too large ({prompt_size} chars > limit {MAX_PROMPT_CHARS}). "
-            "Manual intervention required before continuing."
+            "Refine to a smaller, targeted command (e.g., tail/head/grep with limits) instead of broad output."
         )
         log(msg=msg, prefix="WORKER PROMPT LIMIT")
-        raise ValueError(msg)
+
+        user_prompt = (
+            f"GOAL:\n{goal}\n\n"
+            "The last command produced too much output for the prompt budget. "
+            f"Last command: {last_cmd}.\n"
+            f"WORKER_MAX_PROMPT_CHARS={MAX_PROMPT_CHARS}.\n"
+            "Provide a smaller, filtered command that returns limited output (e.g., tail -n 200, head, grep -m).\n"
+            "Here is a truncated recent history:\n"
+            f"{truncated_history}\n"
+            "Return exactly one concise command and avoid re-emitting huge outputs."
+        )
 
     # Log outgoing request
     log(
@@ -309,6 +330,23 @@ def run_worker(goal: str, workdir: str | None = None):
         print(result["stderr"])
 
         history.append(result)
+
+        if result["returncode"] != 0:
+            fiction_msg = (
+                "The last instruction was not verifiably true (non-zero exit). "
+                "High probability of hallucination or partial info. Re-think and simplify to a testable step."
+            )
+            log(msg=fiction_msg, prefix="WORKER FICTION")
+            history.append(
+                {
+                    "command": "FICTION_DETECTED",
+                    "stdout": fiction_msg,
+                    "stderr": "",
+                    "returncode": result["returncode"],
+                }
+            )
+            print(fiction_msg)
+            break
 
         if done:
             print("Agent finished (after executing final command).")
