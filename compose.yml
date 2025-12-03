@@ -4,7 +4,17 @@ services:
     container_name: llm-sandbox
     volumes:
       - ./:/workspace
-      - ~/.ssh:/root/.ssh:ro
+      - ~/.ssh:/home/appuser/.ssh:ro
     working_dir: /workspace
     tty: true
     stdin_open: true
+    user: "${UID:-1000}:${GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+      - /home/appuser
+    cap_drop:
+      - ALL
+    environment:
+      - WORKSPACE_ROOT=/workspace
