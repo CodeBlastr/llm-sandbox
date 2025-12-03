@@ -37,13 +37,15 @@ def run_shell(command: str, workdir: str | None = None) -> dict:
             if phrase in lowered:
                 return False, f"Blocked dangerous command pattern: {phrase}"
 
+        # Only inspect the first line (shell command), ignore heredoc payload
+        first_line = cmd.splitlines()[0].strip()
         try:
-            tokens = shlex.split(cmd)
+            tokens = shlex.split(first_line)
         except Exception:
-            tokens = cmd.split()
+            tokens = first_line.split()
 
         for tok in tokens:
-            if tok.startswith("/"):
+            if tok.startswith("/") and len(tok) > 1:
                 try:
                     p = Path(tok).resolve()
                     if allowed_root not in p.parents and p != allowed_root:
