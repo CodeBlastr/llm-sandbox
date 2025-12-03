@@ -21,3 +21,4 @@ services:
       - ALL
     environment:
       - WORKSPACE_ROOT=/workspace
+      - NPM_CONFIG_CACHE=/tmp/.npm-cache
