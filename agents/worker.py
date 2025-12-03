@@ -394,7 +394,7 @@ def run_worker(goal: str, workdir: str | None = None):
                 }
             )
             print(fiction_msg)
-            break
+            continue
 
         if done:
             print("Agent finished (after executing final command).")

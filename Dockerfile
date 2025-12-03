@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     build-essential \
+    curl \
+    ca-certificates \
+    nodejs \
+    npm \
  && rm -rf /var/lib/apt/lists/*
 
 # Create an unprivileged user to avoid running as root
