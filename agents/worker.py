@@ -1,10 +1,12 @@
 import os
 import subprocess
 import json
+import shlex
 from getpass import getpass
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
+from pathlib import Path
 
 # Load .env values into the environment (including any secrets you already put there)
 load_dotenv(override=True)
@@ -16,15 +18,59 @@ HISTORY_CHAR_LIMIT = int(os.getenv("WORKER_HISTORY_CHAR_LIMIT", str(int(MAX_PROM
 
 
 def run_shell(command: str, workdir: str | None = None) -> dict:
-    """Execute a shell command and capture output."""
+    """Execute a shell command and capture output with safety checks."""
+    allowed_root = Path(os.getenv("WORKSPACE_ROOT", "/workspace")).resolve()
+    cwd_path = Path(workdir or os.getcwd()).resolve()
+
+    if allowed_root not in cwd_path.parents and cwd_path != allowed_root:
+        return {
+            "command": command,
+            "stdout": "",
+            "stderr": f"Unsafe workdir outside allowed root: {cwd_path}",
+            "returncode": -1,
+        }
+
+    def is_safe(cmd: str) -> tuple[bool, str]:
+        lowered = cmd.lower()
+        banned_phrases = ["rm -rf /", "rm -rf --no-preserve-root", "sudo rm", "mkfs", ":(){:|:&};:"]
+        for phrase in banned_phrases:
+            if phrase in lowered:
+                return False, f"Blocked dangerous command pattern: {phrase}"
+
+        try:
+            tokens = shlex.split(cmd)
+        except Exception:
+            tokens = cmd.split()
+
+        for tok in tokens:
+            if tok.startswith("/"):
+                try:
+                    p = Path(tok).resolve()
+                    if allowed_root not in p.parents and p != allowed_root:
+                        return False, f"Blocked absolute path outside workspace: {p}"
+                except Exception:
+                    return False, f"Blocked unresolvable absolute path: {tok}"
+            if tok == "sudo":
+                return False, "Blocked use of sudo"
+        return True, ""
+
+    safe, reason = is_safe(command)
+    if not safe:
+        log(msg=reason, prefix="WORKER SAFETY")
+        return {
+            "command": command,
+            "stdout": "",
+            "stderr": reason,
+            "returncode": -1,
+        }
+
     try:
-        # Explicitly pass current environment (including secrets)
         env = os.environ.copy()
 
         result = subprocess.run(
             command,
             shell=True,
-            cwd=workdir or os.getcwd(),
+            cwd=str(cwd_path),
             capture_output=True,
             text=True,
             timeout=120,
@@ -82,7 +128,7 @@ def build_system_prompt() -> str:
         "  - needs_human: object with keys {reason: string} to pause automation when you believe human intervention is required.\n"
         "Truth vs fiction rule: treat an action as TRUE only when its result is verifiable (successful command, expected output or secondary source). If a result is not verifiable or fails, treat it as FICTION and simplify; propose the smallest testable next step.\n"
         "One-step rule: propose exactly one command per response, wait for its result, and do not move on until that step is confirmed (success exit + simple verification if needed). Prefer a short verification command after changes before proceeding. Only set done=true after a verified success.\n"
-        "\n"
+        "Safety rule: stay within the workspace (/workspace) and project directories; do NOT use absolute paths outside them; do NOT run destructive commands (e.g., rm -rf /, sudo).\n"
         "Use ask_human ONLY when you cannot proceed without a human-provided secret "
         "such as an API key.\n"
         "\n"

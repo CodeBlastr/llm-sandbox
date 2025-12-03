@@ -4,6 +4,7 @@ services:
     container_name: llm-sandbox
     volumes:
       - ./:/workspace
+      - ~/.ssh:/root/.ssh:ro
     working_dir: /workspace
     tty: true
     stdin_open: true
