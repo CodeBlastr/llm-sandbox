@@ -5,6 +5,10 @@ services:
     volumes:
       - ./:/workspace
       - ~/.ssh:/home/appuser/.ssh:ro
+      - type: tmpfs
+        target: /home/appuser
+        tmpfs:
+          mode: 1777
     working_dir: /workspace
     tty: true
     stdin_open: true
@@ -13,7 +17,6 @@ services:
     tmpfs:
       - /tmp
       - /var/tmp
-      - /home/appuser
     cap_drop:
       - ALL
     environment:
