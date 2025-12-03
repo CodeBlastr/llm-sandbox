@@ -85,3 +85,7 @@ utils/__pycache__/
 # Ignore requirements lock files
 poetry.lock
 Pipfile.lock
+
+
+# Ignore projects directory
+projects/
