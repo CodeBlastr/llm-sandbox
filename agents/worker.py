@@ -297,15 +297,36 @@ def handle_ask_human(ask: dict, history: list) -> None:
             }
         )
 
-        print(f"[ERROR] {key_name} is NOT present in environment after human input.")
-        history.append(
-            {
-                "command": f"CONFIRM_SECRET_FAILED {key_name}",
-                "stdout": "",
-                "stderr": f"Secret {key_name} is NOT present in environment.",
-                "returncode": 1,
-            }
-        )
+
+def request_human_intervention(message: str, history: list, tag: str = "NEEDS_HUMAN") -> None:
+    print("\n===================================")
+    print("[AGENT REQUESTS HUMAN INTERVENTION]")
+    print(message)
+    print("===================================\n")
+    history.append(
+        {
+            "command": tag,
+            "stdout": message,
+            "stderr": "",
+            "returncode": -2,
+        }
+    )
+
+
+def _needs_human_for_auth(stderr: str, stdout: str) -> tuple[bool, str]:
+    combined = f"{stderr}\n{stdout}".lower()
+    auth_indicators = [
+        "authentication error",
+        "permission denied",
+        "not authorized",
+        "403",
+        "code: 10000",
+        "request to the cloudflare api",
+    ]
+    for marker in auth_indicators:
+        if marker in combined:
+            return True, f"Authentication/permission issue detected: {marker}"
+    return False, ""
 
 
 def run_worker(goal: str, workdir: str | None = None):
@@ -381,6 +402,12 @@ def run_worker(goal: str, workdir: str | None = None):
         history.append(result)
 
         if result["returncode"] != 0:
+            needs_human, reason = _needs_human_for_auth(result.get("stderr", ""), result.get("stdout", ""))
+            if needs_human:
+                log(msg=reason, prefix="WORKER HUMAN REQUIRED")
+                request_human_intervention(reason, history, tag="NEEDS_HUMAN_AUTH")
+                break
+
             fiction_msg = (
                 "The last instruction was not verifiably true (non-zero exit). "
                 "High probability of hallucination or partial info. Re-think and simplify to a testable step."
