@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
  && rm -rf /var/lib/apt/lists/*
 
+# Pre-install wrangler to avoid npx interactive prompts
+RUN npm install -g wrangler@latest
+
 # Create an unprivileged user to avoid running as root
 ARG USERNAME=appuser
 ARG USER_UID=1000

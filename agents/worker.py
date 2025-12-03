@@ -131,6 +131,7 @@ def build_system_prompt() -> str:
         "Truth vs fiction rule: treat an action as TRUE only when its result is verifiable (successful command, expected output or secondary source). If a result is not verifiable or fails, treat it as FICTION and simplify; propose the smallest testable next step.\n"
         "One-step rule: propose exactly one command per response, wait for its result, and do not move on until that step is confirmed (success exit + simple verification if needed). Prefer a short verification command after changes before proceeding. Only set done=true after a verified success.\n"
         "Safety rule: stay within the workspace (/workspace) and project directories; do NOT use absolute paths outside them; do NOT run destructive commands (e.g., rm -rf /, sudo).\n"
+        "Non-interactive rule: commands must be non-interactive; add flags like --yes/-y or use env (NPM_CONFIG_YES, NPX_YES) to avoid prompts. If a command times out waiting for input, simplify and try a non-interactive alternative.\n"
         "Use ask_human ONLY when you cannot proceed without a human-provided secret "
         "such as an API key.\n"
         "\n"
