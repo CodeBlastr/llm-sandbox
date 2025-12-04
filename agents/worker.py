@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+from json import JSONDecodeError
 import shlex
 from getpass import getpass
 from dotenv import load_dotenv
@@ -132,6 +133,7 @@ def build_system_prompt() -> str:
         "One-step rule: propose exactly one command per response, wait for its result, and do not move on until that step is confirmed (success exit + simple verification if needed). Prefer a short verification command after changes before proceeding. Only set done=true after a verified success.\n"
         "Safety rule: stay within the workspace (/workspace) and project directories; do NOT use absolute paths outside them; do NOT run destructive commands (e.g., rm -rf /, sudo).\n"
         "Non-interactive rule: commands must be non-interactive; add flags like --yes/-y or use env (NPM_CONFIG_YES, NPX_YES) to avoid prompts. If a command times out waiting for input, simplify and try a non-interactive alternative.\n"
+        "DNS/propagation rule: avoid tight polling; if you need to recheck, include an explicit delay (e.g., sleep 60) before the next check.\n"
         "Use ask_human ONLY when you cannot proceed without a human-provided secret "
         "such as an API key.\n"
         "\n"
@@ -346,6 +348,22 @@ def run_worker(goal: str, workdir: str | None = None):
     for step in range(30):  # safety limit
         try:
             llm_output = call_llm(goal, history)
+        except JSONDecodeError as e:
+            msg = (
+                f"Model returned invalid JSON: {e}. Please re-emit valid JSON only, "
+                "with keys command/done/thoughts (plus optional ask_human/needs_human)."
+            )
+            log(msg=msg, prefix="WORKER PARSE ERROR")
+            history.append(
+                {
+                    "command": "PARSE_ERROR",
+                    "stdout": "",
+                    "stderr": msg,
+                    "returncode": -1,
+                }
+            )
+            print(msg)
+            continue
         except Exception as e:
             log(msg=f"Worker halted due to error: {e}", prefix="WORKER ERROR")
             history.append(
