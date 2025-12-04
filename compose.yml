@@ -24,3 +24,4 @@ services:
       - NPM_CONFIG_CACHE=/tmp/.npm-cache
       - NPM_CONFIG_YES=true
       - NPX_YES=1
+      - XDG_CONFIG_HOME=/tmp/.config
