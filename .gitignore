@@ -89,3 +89,4 @@ Pipfile.lock
 
 # Ignore projects directory
 projects/
+.config
