@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
 from utils.memory import summarize_recent_projects
+from utils.campaign import load_campaign, summarize_campaign
 
 
 load_dotenv()
@@ -51,9 +52,20 @@ def plan(goal: str) -> str:
     if memory_context:
         log(msg=f"Memory context injected:\n{memory_context}", prefix="PLANNER MEMORY")
 
+    # Campaign context (if a campaign.yaml exists alongside the goal path)
+    campaign_path = os.getenv("CAMPAIGN_PATH")
+    campaign_context = ""
+    if campaign_path:
+        campaign_data = load_campaign(campaign_path)
+        campaign_context = summarize_campaign(campaign_data)
+        if campaign_context:
+            log(msg=f"Campaign context injected:\n{campaign_context}", prefix="PLANNER CAMPAIGN")
+
     user_goal = goal
     if memory_context:
         user_goal = f"{goal}\n\nRelevant prior runs:\n{memory_context}"
+    if campaign_context:
+        user_goal = f"{user_goal}\n\nCampaign context:\n{campaign_context}"
 
     log(
         msg=f"SYSTEM PROMPT:\n{SYSTEM_PROMPT}\n\nUSER GOAL:\n{user_goal}",
@@ -84,6 +96,12 @@ def plan(goal: str) -> str:
     )
 
     return content
+
+
+def verify_campaign_access(campaign_path: str):
+    data = load_campaign(campaign_path)
+    summary = summarize_campaign(data)
+    print(f"[PLANNER] Campaign summary: {summary}")
 
 
 def main():

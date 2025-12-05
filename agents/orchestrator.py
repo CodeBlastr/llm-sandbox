@@ -8,6 +8,7 @@ from agents.worker import run_worker
 from agents.reviewer import review
 from utils.logger import log
 from utils.memory import update_project_memory
+from utils.campaign import load_campaign, summarize_campaign, print_campaign_summary
 
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -216,6 +217,12 @@ def write_project_summary(
         json.dump(summary, f, indent=2)
 
     log(msg=f"Project summary written to {out_path}", prefix="ORCH PROJECT SUMMARY")
+
+
+def verify_campaign_access(campaign_path: str | Path):
+    data = load_campaign(campaign_path)
+    summary = summarize_campaign(data)
+    print(f"[ORCH] Campaign summary: {summary}")
 
 
 def orchestrate(goal: str):

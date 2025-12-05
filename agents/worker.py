@@ -4,10 +4,11 @@ import json
 from json import JSONDecodeError
 import shlex
 from getpass import getpass
+from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
-from pathlib import Path
+from utils.campaign import load_campaign, summarize_campaign
 
 # Load .env values into the environment (including any secrets you already put there)
 load_dotenv(override=True)
@@ -313,6 +314,12 @@ def request_human_intervention(message: str, history: list, tag: str = "NEEDS_HU
             "returncode": -2,
         }
     )
+
+
+def verify_campaign_access(campaign_path: str):
+    data = load_campaign(campaign_path)
+    summary = summarize_campaign(data)
+    print(f"[WORKER] Campaign summary: {summary}")
 
 
 def _needs_human_for_auth(stderr: str, stdout: str) -> tuple[bool, str]:
