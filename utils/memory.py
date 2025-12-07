@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 from utils.logger import log
 
 
-MEMORY_DIR = Path("memory")
+# Store memory under projects/ so project artifacts stay grouped
+MEMORY_DIR = Path("projects") / "memory"
 MEMORY_INDEX_PATH = MEMORY_DIR / "project_index.json"
 
 

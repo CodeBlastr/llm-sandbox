@@ -102,15 +102,15 @@ def make_project_dir(project_name: str) -> Path:
     return path
 
 
-def make_run_filename(goal: str) -> Path:
+def make_run_filename(goal: str, project_dir: Path) -> Path:
     """
-    Build a path like: runs/create-fastapi-setup-2025-11-19.json
+    Build a path like: <project_dir>/runs/create-fastapi-setup-2025-11-19.json
     """
     date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     slug = slugify(goal)[:50]  # avoid insanely long filenames
     filename = f"{slug}-{date_str}.json"
 
-    runs_dir = Path("runs")
+    runs_dir = project_dir / "runs"
     runs_dir.mkdir(exist_ok=True)
 
     return runs_dir / filename
@@ -411,8 +411,8 @@ def main():
 
     result = orchestrate(goal, project_name=project_name, project_spec_path=project_spec_path)
 
-    # Save result to a JSON file with a descriptive name
-    output_path = make_run_filename(goal)
+    # Save result to a JSON file with a descriptive name inside the project directory
+    output_path = make_run_filename(goal, project_dir=Path(result.get("project_dir", project_dir)))
     with output_path.open("w") as f:
         json.dump(result, f, indent=2)
 
