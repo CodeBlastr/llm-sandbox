@@ -1,4 +1,6 @@
+import argparse
 import json
+import os
 import re
 import datetime
 from pathlib import Path
@@ -8,7 +10,7 @@ from agents.worker import run_worker
 from agents.reviewer import review
 from utils.logger import log
 from utils.memory import update_project_memory
-from utils.campaign import load_campaign, summarize_campaign, print_campaign_summary
+from utils.campaign import load_campaign, summarize_campaign
 
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -89,19 +91,12 @@ def slugify(text: str) -> str:
     text = re.sub(r"-+", "-", text).strip("-")
     return text or "task"
 
-def make_project_dir(goal: str) -> Path:
-    """
-    Create a dedicated project directory for this run, under ./projects.
-
-    Example:
-      projects/create-fastapi-setup-20251119-153045/
-    """
-    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    slug = slugify(goal)[:50] or "project"
+def make_project_dir(project_name: str) -> Path:
+    """Ensure a project directory exists under ./projects for the given name."""
     project_root = Path("projects")
     project_root.mkdir(exist_ok=True)
 
-    path = project_root / f"{slug}-{timestamp}"
+    path = project_root / project_name
     path.mkdir(parents=True, exist_ok=True)
 
     return path
@@ -225,7 +220,7 @@ def verify_campaign_access(campaign_path: str | Path):
     print(f"[ORCH] Campaign summary: {summary}")
 
 
-def orchestrate(goal: str):
+def orchestrate(goal: str, project_name: str, campaign_path: Path):
     """
     Orchestrator:
       - Takes CEO-level goal
@@ -239,7 +234,14 @@ def orchestrate(goal: str):
     started_at = datetime.datetime.utcnow().isoformat()
     log(f"ORCHESTRATOR START — CEO GOAL:\n{goal}", prefix="ORCH START")
 
-    project_dir = make_project_dir(goal)
+    if not campaign_path.exists():
+        raise FileNotFoundError(
+            f"campaign.yaml is required at {campaign_path}. Provide a project name with -n and ensure the file exists."
+        )
+
+    os.environ["CAMPAIGN_PATH"] = str(campaign_path)
+
+    project_dir = make_project_dir(project_name)
     project_id = project_dir.name
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
 
@@ -387,8 +389,26 @@ def orchestrate(goal: str):
 
 
 def main():
-    goal = input("Enter CEO-level goal: ")
-    result = orchestrate(goal)
+    parser = argparse.ArgumentParser(description="Run the orchestrator with required campaign.")
+    parser.add_argument("goal", nargs="?", help="CEO-level goal")
+    parser.add_argument("-n", "--name", dest="project_name", help="Project name (required)")
+    args = parser.parse_args()
+
+    project_name = args.project_name or input("Enter project name: ").strip()
+    if not project_name:
+        raise ValueError("Project name is required (use -n or provide when prompted).")
+
+    goal = args.goal or input("Enter CEO-level goal: ").strip()
+    if not goal:
+        raise ValueError("Goal is required.")
+
+    campaign_path = Path("projects") / project_name / "campaign.yaml"
+    if not campaign_path.exists():
+        raise FileNotFoundError(
+            f"campaign.yaml is required at {campaign_path}. Create it before running the orchestrator."
+        )
+
+    result = orchestrate(goal, project_name=project_name, campaign_path=campaign_path)
 
     # Save result to a JSON file with a descriptive name
     output_path = make_run_filename(goal)
