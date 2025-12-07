@@ -3,7 +3,7 @@ import json
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
-from utils.campaign import load_campaign, summarize_campaign
+from utils.project import load_project_spec, summarize_project_spec
 from utils.memory import summarize_recent_projects
 
 load_dotenv()
@@ -61,13 +61,13 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
     if memory_context:
         log(msg=f"Memory context injected:\n{memory_context}", prefix="REVIEWER MEMORY")
 
-    campaign_path = os.getenv("CAMPAIGN_PATH")
-    campaign_context = ""
-    if campaign_path:
-        campaign_data = load_campaign(campaign_path)
-        campaign_context = summarize_campaign(campaign_data)
-        if campaign_context:
-            log(msg=f"Campaign context injected:\n{campaign_context}", prefix="REVIEWER CAMPAIGN")
+    project_spec_path = os.getenv("PROJECT_SPEC_PATH")
+    project_context = ""
+    if project_spec_path:
+        project_data = load_project_spec(project_spec_path)
+        project_context = summarize_project_spec(project_data)
+        if project_context:
+            log(msg=f"Project context injected:\n{project_context}", prefix="REVIEWER PROJECT")
 
     user_payload = {
         "goal": goal,
@@ -77,8 +77,8 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
 
     if memory_context:
         user_payload["memory_context"] = memory_context
-    if campaign_context:
-        user_payload["campaign_context"] = campaign_context
+    if project_context:
+        user_payload["project_context"] = project_context
 
     user_content = json.dumps(user_payload, indent=2)
 
@@ -114,10 +114,10 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
     return content
 
 
-def verify_campaign_access(campaign_path: str):
-    data = load_campaign(campaign_path)
-    summary = summarize_campaign(data)
-    print(f"[REVIEWER] Campaign summary: {summary}")
+def verify_project_spec_access(project_path: str):
+    data = load_project_spec(project_path)
+    summary = summarize_project_spec(data)
+    print(f"[REVIEWER] Project spec summary: {summary}")
 
 
 def main():

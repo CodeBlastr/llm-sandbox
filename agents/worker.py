@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
-from utils.campaign import load_campaign, summarize_campaign
+from utils.project import load_project_spec, summarize_project_spec
 
 # Load .env values into the environment (including any secrets you already put there)
 load_dotenv(override=True)
@@ -316,10 +316,10 @@ def request_human_intervention(message: str, history: list, tag: str = "NEEDS_HU
     )
 
 
-def verify_campaign_access(campaign_path: str):
-    data = load_campaign(campaign_path)
-    summary = summarize_campaign(data)
-    print(f"[WORKER] Campaign summary: {summary}")
+def verify_project_spec_access(project_path: str):
+    data = load_project_spec(project_path)
+    summary = summarize_project_spec(data)
+    print(f"[WORKER] Project spec summary: {summary}")
 
 
 def _needs_human_for_auth(stderr: str, stdout: str) -> tuple[bool, str]:

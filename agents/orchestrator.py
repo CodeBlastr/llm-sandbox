@@ -10,7 +10,7 @@ from agents.worker import run_worker
 from agents.reviewer import review
 from utils.logger import log
 from utils.memory import update_project_memory
-from utils.campaign import load_campaign, summarize_campaign
+from utils.project import load_project_spec, summarize_project_spec
 
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -214,13 +214,13 @@ def write_project_summary(
     log(msg=f"Project summary written to {out_path}", prefix="ORCH PROJECT SUMMARY")
 
 
-def verify_campaign_access(campaign_path: str | Path):
-    data = load_campaign(campaign_path)
-    summary = summarize_campaign(data)
-    print(f"[ORCH] Campaign summary: {summary}")
+def verify_project_spec_access(project_path: str | Path):
+    data = load_project_spec(project_path)
+    summary = summarize_project_spec(data)
+    print(f"[ORCH] Project spec summary: {summary}")
 
 
-def orchestrate(goal: str, project_name: str, campaign_path: Path):
+def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     """
     Orchestrator:
       - Takes CEO-level goal
@@ -234,12 +234,12 @@ def orchestrate(goal: str, project_name: str, campaign_path: Path):
     started_at = datetime.datetime.utcnow().isoformat()
     log(f"ORCHESTRATOR START — CEO GOAL:\n{goal}", prefix="ORCH START")
 
-    if not campaign_path.exists():
+    if not project_spec_path.exists():
         raise FileNotFoundError(
-            f"campaign.yaml is required at {campaign_path}. Provide a project name with -n and ensure the file exists."
+            f"project.yaml is required at {project_spec_path}. Provide a project name with -n and ensure the file exists."
         )
 
-    os.environ["CAMPAIGN_PATH"] = str(campaign_path)
+    os.environ["PROJECT_SPEC_PATH"] = str(project_spec_path)
 
     project_dir = make_project_dir(project_name)
     project_id = project_dir.name
@@ -389,7 +389,7 @@ def orchestrate(goal: str, project_name: str, campaign_path: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the orchestrator with required campaign.")
+    parser = argparse.ArgumentParser(description="Run the orchestrator with required project spec.")
     parser.add_argument("goal", nargs="?", help="CEO-level goal")
     parser.add_argument("-n", "--name", dest="project_name", help="Project name (required)")
     args = parser.parse_args()
@@ -402,13 +402,13 @@ def main():
     if not goal:
         raise ValueError("Goal is required.")
 
-    campaign_path = Path("projects") / project_name / "campaign.yaml"
-    if not campaign_path.exists():
+    project_spec_path = Path("projects") / project_name / "project.yaml"
+    if not project_spec_path.exists():
         raise FileNotFoundError(
-            f"campaign.yaml is required at {campaign_path}. Create it before running the orchestrator."
+            f"project.yaml is required at {project_spec_path}. Create it before running the orchestrator."
         )
 
-    result = orchestrate(goal, project_name=project_name, campaign_path=campaign_path)
+    result = orchestrate(goal, project_name=project_name, project_spec_path=project_spec_path)
 
     # Save result to a JSON file with a descriptive name
     output_path = make_run_filename(goal)
