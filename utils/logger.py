@@ -1,9 +1,14 @@
 import datetime
+import os
 from pathlib import Path
 
-# Ensure logs directory exists at project root
-LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
+# Base log dir (can be overridden to project-specific dir via env)
+LOG_DIR_ENV = os.getenv("LOG_DIR")
+if LOG_DIR_ENV:
+    LOG_DIR = Path(LOG_DIR_ENV)
+else:
+    LOG_DIR = Path("logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def log(msg: str, *, prefix: str = "") -> None:
     """

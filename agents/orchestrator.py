@@ -240,6 +240,7 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
         )
 
     os.environ["PROJECT_SPEC_PATH"] = str(project_spec_path)
+    os.environ["LOG_DIR"] = str(project_spec_path.parent / "logs")
 
     project_dir = make_project_dir(project_name)
     project_id = project_dir.name
