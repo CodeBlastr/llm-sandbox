@@ -4,13 +4,16 @@ from openai import OpenAI
 from utils.logger import log
 from utils.memory import summarize_recent_projects
 from utils.project import load_project_spec, summarize_project_spec
+from utils.contracts import REPO_STRUCTURE_CONTRACT
 
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.1")
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
+{REPO_STRUCTURE_CONTRACT}
+
 You are the CTO / Planner agent.
 
 Your job is to take a high-level business or engineering goal and break it down
@@ -21,14 +24,14 @@ describing the plan.
 
 The output JSON MUST have this format:
 
-{
+{{
   "goal": "<restated high-level goal>",
   "steps": [
-    { "id": 1, "description": "<detailed step>" },
-    { "id": 2, "description": "<detailed step>" },
+    {{ "id": 1, "description": "<detailed step>" }},
+    {{ "id": 2, "description": "<detailed step>" }},
     ...
   ]
-}
+}}
 
 Rules:
 - Steps must be specific enough for an executor agent to run without ambiguity.
