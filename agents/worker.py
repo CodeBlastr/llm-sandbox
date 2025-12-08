@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from utils.logger import log
 from utils.project import load_project_spec, summarize_project_spec
+from utils.contracts import REPO_STRUCTURE_CONTRACT
 
 # Load .env values into the environment (including any secrets you already put there)
 load_dotenv(override=True)
@@ -122,6 +123,7 @@ def save_secret(key_name: str, value: str, storage: str = "env") -> None:
 
 def build_system_prompt() -> str:
     return (
+        f"{REPO_STRUCTURE_CONTRACT}\n\n"
         "You are an autonomous software engineer with access to a bash shell.\n"
         "You respond ONLY with valid JSON. The JSON MUST have these keys:\n"
         "  - command: string (the shell command to run, or \"\" if none)\n"
