@@ -11,6 +11,7 @@ from agents.reviewer import review
 from utils.logger import log
 from utils.memory import update_project_memory
 from utils.project import load_project_spec, summarize_project_spec
+from utils.session import init_session_state
 
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -246,6 +247,9 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     os.environ["WORKSPACE_ROOT"] = str(project_dir.resolve())
     project_id = project_dir.name
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
+
+    session_state = init_session_state(project_id=project_id, goal=goal, project_root=project_dir)
+    session_id = session_state["session_id"]
 
     # 1) Call Planner (initial plan)
     planner_output = planner_plan(goal)

@@ -40,6 +40,12 @@ def run_shell(command: str, workdir: str | None = None) -> dict:
             if phrase in lowered:
                 return False, f"Blocked dangerous command pattern: {phrase}"
 
+        # Out-of-bounds guardrail: block commands that explicitly target engine files/dirs
+        engine_markers = ["/agents", "./agents", " agents/", "/utils", "./utils", " utils/", "run.py", "dockerfile", "compose.yml"]
+        for marker in engine_markers:
+            if marker in cmd.lower():
+                return False, f"Blocked out-of-bounds target (engine code): {marker}"
+
         # Only inspect the first line (shell command), ignore heredoc payload
         first_line = cmd.splitlines()[0].strip()
         try:
