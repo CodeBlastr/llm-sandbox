@@ -239,12 +239,11 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
             f"project.yaml is required at {project_spec_path}. Provide a project name with -n and ensure the file exists."
         )
 
+    project_dir = make_project_dir(project_name)
     os.environ["PROJECT_SPEC_PATH"] = str(project_spec_path)
     os.environ["LOG_DIR"] = str(project_spec_path.parent / "logs")
     # Constrain worker operations to the project directory
     os.environ["WORKSPACE_ROOT"] = str(project_dir.resolve())
-
-    project_dir = make_project_dir(project_name)
     project_id = project_dir.name
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
 

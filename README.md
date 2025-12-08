@@ -1,0 +1,36 @@
+# Autonomous Agentic Coding Bot
+
+This repo contains a multi-agent pipeline (Orchestrator → Planner → Worker → Reviewer) with project-specific specs stored under `projects/<project>/project.yaml`. Runs, logs, and memory stay inside the project tree.
+
+## Prerequisites
+- Docker & Docker Compose
+- An OpenAI API key in `.env` (`OPENAI_API_KEY`)
+- For Cloudflare work: `CLOUDFLARE_API_TOKEN` in `.env`
+
+## Build and start the container
+```bash
+docker compose up -d --build
+```
+
+## Run a project
+1) Ensure `projects/<project_name>/project.yaml` exists with your project spec.
+2) From inside the container (or via `docker exec`):
+```bash
+python -m agents.orchestrator -n <project_name> "<goal>"
+```
+
+Examples:
+```bash
+docker exec -it llm-sandbox bash
+python -m agents.orchestrator -n franchisetalk "Publish hello world to franchisetalk.com"
+```
+
+## Project artifacts
+- `projects/<project>/runs/` – run summaries
+- `projects/<project>/logs/` – agent logs
+- `projects/memory/` – memory index
+- `projects/<project>/project.yaml` – required project spec
+
+## Notes
+- The worker is sandboxed to `projects/<project>` via `WORKSPACE_ROOT`.
+- Use `python -m agents.<agent>` to test individual agents if needed.
