@@ -5,6 +5,8 @@ import re
 import datetime
 from pathlib import Path
 
+import yaml
+
 from agents.planner import plan as planner_plan
 from agents.worker import run_worker
 from agents.reviewer import review
@@ -101,6 +103,29 @@ def make_project_dir(project_name: str) -> Path:
     path.mkdir(parents=True, exist_ok=True)
 
     return path
+
+
+def ensure_project_spec(project_name: str, project_spec_path: Path) -> None:
+    """Create a minimal project.yaml if missing, using local prompts (no LLM)."""
+    if project_spec_path.exists():
+        return
+
+    project_spec_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"Project spec not found at {project_spec_path}.")
+    name = input(f"Enter project display name [{project_name}]: ").strip() or project_name
+    description = input("Enter project description: ").strip() or ""
+
+    data = {
+        "project_id": project_name,
+        "name": name,
+        "description": description,
+    }
+
+    with project_spec_path.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+
+    print(f"Created minimal project spec at {project_spec_path}")
 
 
 def make_run_filename(goal: str, project_dir: Path) -> Path:
@@ -409,10 +434,7 @@ def main():
         raise ValueError("Goal is required.")
 
     project_spec_path = Path("projects") / project_name / "project.yaml"
-    if not project_spec_path.exists():
-        raise FileNotFoundError(
-            f"project.yaml is required at {project_spec_path}. Create it before running the orchestrator."
-        )
+    ensure_project_spec(project_name, project_spec_path)
 
     result = orchestrate(goal, project_name=project_name, project_spec_path=project_spec_path)
 

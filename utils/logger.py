@@ -2,13 +2,13 @@ import datetime
 import os
 from pathlib import Path
 
-# Base log dir (can be overridden to project-specific dir via env)
-LOG_DIR_ENV = os.getenv("LOG_DIR")
-if LOG_DIR_ENV:
-    LOG_DIR = Path(LOG_DIR_ENV)
-else:
-    LOG_DIR = Path("logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+def _resolve_log_dir() -> Path:
+    """Resolve the log directory from env (LOG_DIR) or default to ./logs."""
+    env_dir = os.getenv("LOG_DIR")
+    path = Path(env_dir) if env_dir else Path("logs")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 def log(msg: str, *, prefix: str = "") -> None:
     """
@@ -17,8 +17,9 @@ def log(msg: str, *, prefix: str = "") -> None:
     - msg: the text to log
     - prefix: optional tag like "PLANNER REQUEST" or "WORKER RESPONSE"
     """
+    log_dir = _resolve_log_dir()
     timestamp = datetime.datetime.utcnow().isoformat()
-    log_file = LOG_DIR / datetime.datetime.utcnow().strftime("agent-%Y%m%d.log")
+    log_file = log_dir / datetime.datetime.utcnow().strftime("agent-%Y%m%d.log")
 
     with open(log_file, "a") as f:
         if prefix:
