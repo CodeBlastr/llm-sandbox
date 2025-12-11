@@ -48,7 +48,7 @@ Rules:
 """
 
 
-def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
+def review(goal: str, planner_json: str | None, execution_summary: str, session_id: str | None = None) -> str:
     """
     Call the Reviewer agent.
 
@@ -82,6 +82,9 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
         user_payload["memory_context"] = memory_context
     if project_context:
         user_payload["project_context"] = project_context
+
+    if session_id:
+        user_payload["session_id"] = session_id
 
     user_content = json.dumps(user_payload, indent=2)
 

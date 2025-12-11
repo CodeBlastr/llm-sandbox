@@ -43,7 +43,7 @@ Rules:
 - Always restate the goal clearly in the "goal" field.
 """
 
-def plan(goal: str) -> str:
+def plan(goal: str, session_id: str | None = None) -> str:
     """
     Call the Planner agent to produce a structured plan.
 
@@ -64,6 +64,8 @@ def plan(goal: str) -> str:
         if project_context:
             log(msg=f"Project context injected:\n{project_context}", prefix="PLANNER PROJECT")
 
+    session_line = f"Session ID: {session_id}\n" if session_id else ""
+
     user_goal = goal
     if memory_context:
         user_goal = f"{goal}\n\nRelevant prior runs:\n{memory_context}"
@@ -71,7 +73,7 @@ def plan(goal: str) -> str:
         user_goal = f"{user_goal}\n\nProject context:\n{project_context}"
 
     log(
-        msg=f"SYSTEM PROMPT:\n{SYSTEM_PROMPT}\n\nUSER GOAL:\n{user_goal}",
+        msg=f"SYSTEM PROMPT:\n{SYSTEM_PROMPT}\n\nUSER GOAL:\n{user_goal}\nSESSION_ID: {session_id or '(none)'}",
         prefix="PLANNER REQUEST"
     )
 
@@ -80,7 +82,7 @@ def plan(goal: str) -> str:
         temperature=0.2,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_goal}
+            {"role": "user", "content": f"{session_line}{user_goal}"}
         ]
     )
 

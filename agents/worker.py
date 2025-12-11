@@ -165,7 +165,7 @@ def build_system_prompt() -> str:
     )
 
 
-def call_llm(goal: str, history: list) -> dict:
+def call_llm(goal: str, history: list, session_id: str | None = None) -> dict:
     """Send goal + history to the LLM and get the next action."""
     system_prompt = build_system_prompt()
 
@@ -184,8 +184,10 @@ def call_llm(goal: str, history: list) -> dict:
 
     history_text = format_history(history, HISTORY_CHAR_LIMIT)
 
+    session_line = f"SESSION_ID: {session_id}\n" if session_id else ""
+
     user_prompt = (
-        f"GOAL:\n{goal}\n\n"
+        f"{session_line}GOAL:\n{goal}\n\n"
         f"HISTORY:\n{history_text}\n"
         "Decide what to do next. Either:\n"
         "  - Provide the next shell command in 'command', or\n"
@@ -346,7 +348,7 @@ def _needs_human_for_auth(stderr: str, stdout: str) -> tuple[bool, str]:
     return False, ""
 
 
-def run_worker(goal: str, workdir: str | None = None):
+def run_worker(goal: str, workdir: str | None = None, session_id: str | None = None):
     """
     Run the Worker agent for a given goal.
 
@@ -362,7 +364,7 @@ def run_worker(goal: str, workdir: str | None = None):
 
     for step in range(30):  # safety limit
         try:
-            llm_output = call_llm(goal, history)
+            llm_output = call_llm(goal, history, session_id=session_id)
         except JSONDecodeError as e:
             msg = (
                 f"Model returned invalid JSON: {e}. Please re-emit valid JSON only, "
