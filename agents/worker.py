@@ -175,6 +175,22 @@ def build_system_prompt() -> str:
     )
 
 
+def build_simple_system_prompt() -> str:
+    workspace_root = os.getenv("WORKSPACE_ROOT", "/workspace")
+    default_output_dir = str(Path(workspace_root) / "output")
+    output_dir = os.getenv("PROJECT_OUTPUT_DIR", default_output_dir)
+    return (
+        f"{REPO_STRUCTURE_CONTRACT}\n"
+        f"\nWorkspace root for this run: {workspace_root}\n"
+        f"Project output root for this run: {output_dir}\n"
+        "You are a single-shot worker. Produce the final deliverable in one step.\n"
+        "Respond with one JSON object only, no explanations. Format:\n"
+        '{"command": "<shell command that writes all files>", "done": true}\n'
+        "The command must be non-interactive, safe, and write all required files to the output directory "
+        "(use mkdir -p as needed). Do not request further steps or loops."
+    )
+
+
 def call_llm(goal: str, history: list, session_id: str | None = None) -> dict:
     """Send goal + history to the LLM and get the next action."""
     system_prompt = build_system_prompt()
@@ -257,6 +273,38 @@ def call_llm(goal: str, history: list, session_id: str | None = None) -> dict:
         prefix="WORKER PARSED",
     )
 
+    return json.loads(content)
+
+
+def call_llm_simple(goal: str, session_id: str | None = None) -> dict:
+    """Single-shot LLM call for simple tasks."""
+    system_prompt = build_simple_system_prompt()
+    session_line = f"SESSION_ID: {session_id}\n" if session_id else ""
+    user_prompt = (
+        f"{session_line}GOAL:\n{goal}\n\n"
+        "Emit one JSON object with keys {command, done}. "
+        "command must write all required files to the output directory in a single step "
+        "(use mkdir -p and cat <<'EOF' redirections). "
+        "Set done=true. No iterations, no explanations."
+    )
+
+    log(
+        msg=f"SIMPLE SYSTEM PROMPT:\n{system_prompt}\n\nUSER PROMPT:\n{user_prompt}",
+        prefix="WORKER SIMPLE REQUEST",
+    )
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+
+    log(msg=f"SIMPLE RAW RESPONSE:\n{response}", prefix="WORKER SIMPLE RAW")
+    content = response.choices[0].message.content.strip()
+    log(msg=f"SIMPLE PARSED CONTENT:\n{content}", prefix="WORKER SIMPLE PARSED")
     return json.loads(content)
 
 
@@ -356,6 +404,68 @@ def _needs_human_for_auth(stderr: str, stdout: str) -> tuple[bool, str]:
         if marker in combined:
             return True, f"Authentication/permission issue detected: {marker}"
     return False, ""
+
+
+def run_worker_simple(goal: str, workdir: str | None = None, session_id: str | None = None):
+    """
+    Single-call Worker execution for simple tasks.
+
+    Returns:
+        history: list with a single command execution result.
+    """
+    base_dir = workdir or os.getcwd()
+
+    try:
+        llm_output = call_llm_simple(goal, session_id=session_id)
+    except JSONDecodeError as e:
+        msg = f"Model returned invalid JSON in simple mode: {e}. Expected keys command/done."
+        log(msg=msg, prefix="WORKER SIMPLE PARSE ERROR")
+        return [
+            {
+                "command": "PARSE_ERROR",
+                "stdout": "",
+                "stderr": msg,
+                "returncode": -1,
+            }
+        ]
+    except Exception as e:
+        log(msg=f"Simple worker halted due to error: {e}", prefix="WORKER SIMPLE ERROR")
+        return [
+            {
+                "command": "SIMPLE_WORKER_ERROR",
+                "stdout": "",
+                "stderr": str(e),
+                "returncode": -1,
+            }
+        ]
+
+    command = llm_output.get("command", "")
+    done = llm_output.get("done", False)
+
+    print("\n===============================")
+    print("LLM Thoughts: (omitted in simple mode)")
+    print("Next command:", command)
+    print("Done:", done)
+    print("===============================\n")
+
+    if command == "":
+        msg = "Simple worker produced no command."
+        log(msg=msg, prefix="WORKER SIMPLE EMPTY")
+        return [
+            {
+                "command": "",
+                "stdout": "",
+                "stderr": msg,
+                "returncode": -1,
+            }
+        ]
+
+    result = run_shell(command, workdir=base_dir)
+    print("Command output:")
+    print(result["stdout"])
+    print(result["stderr"])
+
+    return [result]
 
 
 def run_worker(goal: str, workdir: str | None = None, session_id: str | None = None):

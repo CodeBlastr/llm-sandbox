@@ -7,8 +7,9 @@ from pathlib import Path
 
 import yaml
 
+from agents.classifier import classify_task
 from agents.planner import plan as planner_plan
-from agents.worker import run_worker
+from agents.worker import run_worker, run_worker_simple
 from agents.reviewer import review
 from utils.logger import log
 from utils.memory import update_project_memory
@@ -212,6 +213,8 @@ def write_project_summary(
     started_at: str | None = None,
     completed_at: str | None = None,
     final_plan: dict | None = None,
+    mode: str | None = None,
+    classification: str | None = None,
 ) -> None:
     """
     Write a PROJECT_INFO.json file into the project directory containing:
@@ -238,6 +241,8 @@ def write_project_summary(
         "started_at": started_at,
         "completed_at": completed_at,
         "final_plan": final_plan,
+        "mode": mode,
+        "classification": classification,
         "how_to_test": build_how_to_test(goal, project_dir),
     }
 
@@ -268,6 +273,10 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     started_at = datetime.datetime.utcnow().isoformat()
     log(f"ORCHESTRATOR START — CEO GOAL:\n{goal}", prefix="ORCH START")
 
+    task_classification = classify_task(goal)
+    mode = "simple" if task_classification == "simple" else "pipeline"
+    log(f"Task classification: {task_classification}; mode={mode}", prefix="ORCH MODE")
+
     if not project_spec_path.exists():
         raise FileNotFoundError(
             f"project.yaml is required at {project_spec_path}. Provide a project name with -n and ensure the file exists."
@@ -283,9 +292,73 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
     log(f"Output directory for generated work: {os.environ['PROJECT_OUTPUT_DIR']}", prefix="ORCH PROJECT")
 
-    session_state = init_session_state(project_id=project_id, goal=goal, project_root=project_dir)
+    session_state = init_session_state(project_id=project_id, goal=goal, project_root=project_dir, mode=mode)
     session_id = session_state["session_id"]
     log(f"Session started: session_id={session_id}", prefix="ORCH SESSION")
+
+    # Simple mode: single Worker call, no planner/reviewer
+    if mode == "simple":
+        worker_history = run_worker_simple(goal, workdir=str(project_dir), session_id=session_id)
+        execution_results = [
+            {
+                "attempt": "simple",
+                "step_id": 1,
+                "description": goal,
+                "worker_history": worker_history,
+            }
+        ]
+        review_data = {
+            "overall_assessment": "Simple mode executed; reviewer skipped.",
+            "issues": [],
+            "suggestions": ["Manually verify the output and run any quick sanity checks."],
+        }
+        combined_plans = {"initial_plan": None, "repair_plans": []}
+        status = "success" if all(cmd.get("returncode", 1) == 0 for cmd in worker_history) else "needs_review"
+        remaining_issues = status != "success"
+        completed_at = datetime.datetime.utcnow().isoformat()
+
+        write_project_summary(
+            project_dir=project_dir,
+            goal=goal,
+            planner_json={},
+            execution_results=execution_results,
+            review_data=review_data,
+            repair_attempts=0,
+            plans=combined_plans,
+            status=status,
+            blocking_issues_remaining=remaining_issues,
+            started_at=started_at,
+            completed_at=completed_at,
+            final_plan=None,
+            mode=mode,
+            classification=task_classification,
+        )
+
+        summary = {
+            "goal": goal,
+            "project_id": project_id,
+            "project_dir": str(project_dir),
+            "mode": mode,
+            "classification": task_classification,
+            "steps_executed": len(execution_results),
+            "repair_attempts": 0,
+            "results": execution_results,
+            "review": review_data,
+            "plans": combined_plans,
+            "plan": {},
+            "status": status,
+            "blocking_issues_remaining": remaining_issues,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "final_plan": None,
+        }
+
+        log(
+            msg=f"ORCHESTRATION COMPLETE (simple mode) — steps executed: {len(execution_results)}; status={status}",
+            prefix="ORCH COMPLETE",
+        )
+
+        return summary
 
     # 1) Call Planner (initial plan)
     planner_output = planner_plan(goal=goal, session_id=session_id)
@@ -401,12 +474,16 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
         started_at=started_at,
         completed_at=completed_at,
         final_plan=final_plan,
+        mode=mode,
+        classification=task_classification,
     )
 
     summary = {
         "goal": goal,
         "project_id": project_id,
         "project_dir": str(project_dir),
+        "mode": mode,
+        "classification": task_classification,
         "steps_executed": len(execution_results),
         "repair_attempts": repair_attempts,
         "results": execution_results,

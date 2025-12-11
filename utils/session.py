@@ -9,7 +9,7 @@ def new_session_id(project_id: str) -> str:
     return f"{project_id}-{ts}-{uuid.uuid4().hex[:8]}"
 
 
-def init_session_state(project_id: str, goal: str, project_root: Path) -> dict:
+def init_session_state(project_id: str, goal: str, project_root: Path, mode: str = "pipeline") -> dict:
     session_id = new_session_id(project_id)
     started_at = dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     state = {
@@ -18,6 +18,7 @@ def init_session_state(project_id: str, goal: str, project_root: Path) -> dict:
         "goal": goal,
         "status": "running",
         "started_at": started_at,
+        "mode": mode,
     }
 
     state_path = project_root / "state.json"
