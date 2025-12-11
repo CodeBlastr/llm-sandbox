@@ -56,7 +56,7 @@ def build_fix_request(goal: str, project_dir: Path, review_data: dict) -> str:
     )
 
 
-def execute_steps(steps: list, project_dir: Path, attempt_label: str) -> list:
+def execute_steps(steps: list, project_dir: Path, attempt_label: str, session_id: str | None = None) -> list:
     execution_results = []
     for step in steps:
         step_id = step.get("id")
@@ -67,7 +67,7 @@ def execute_steps(steps: list, project_dir: Path, attempt_label: str) -> list:
             prefix="ORCH EXECUTE STEP"
         )
 
-        worker_history = run_worker(description, workdir=str(project_dir))
+        worker_history = run_worker(description, workdir=str(project_dir), session_id=session_id)
 
         execution_results.append({
             "attempt": attempt_label,
@@ -275,9 +275,10 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
 
     session_state = init_session_state(project_id=project_id, goal=goal, project_root=project_dir)
     session_id = session_state["session_id"]
+    log(f"Session started: session_id={session_id}", prefix="ORCH SESSION")
 
     # 1) Call Planner (initial plan)
-    planner_output = planner_plan(goal)
+    planner_output = planner_plan(goal=goal, session_id=session_id)
     log(f"PLANNER OUTPUT RAW:\n{planner_output}", prefix="ORCH PLANNER RAW")
 
     try:
@@ -295,7 +296,7 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     combined_plans = {"initial_plan": planner_json, "repair_plans": []}
 
     # 2) Execute initial plan
-    execution_results = execute_steps(steps, project_dir, attempt_label="initial")
+    execution_results = execute_steps(steps, project_dir, attempt_label="initial", session_id=session_id)
 
     # 3) First review
     execution_text = build_execution_summary(execution_results)
@@ -304,6 +305,7 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
         goal=goal,
         planner_json=planner_payload_for_review,
         execution_summary=execution_text,
+        session_id=session_id,
     )
     log(msg=f"REVIEWER OUTPUT:\n{review_json}", prefix="ORCH REVIEW")
     review_data = json.loads(review_json)
@@ -344,7 +346,7 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
             break
 
         execution_results.extend(
-            execute_steps(repair_steps, project_dir, attempt_label=f"repair-{repair_attempts}")
+            execute_steps(repair_steps, project_dir, attempt_label=f"repair-{repair_attempts}", session_id=session_id)
         )
 
         execution_text = build_execution_summary(execution_results)

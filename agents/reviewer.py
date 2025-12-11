@@ -48,7 +48,7 @@ Rules:
 """
 
 
-def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
+def review(goal: str, planner_json: str | None, execution_summary: str, session_id: str | None = None) -> str:
     """
     Call the Reviewer agent.
 
@@ -72,6 +72,8 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
         if project_context:
             log(msg=f"Project context injected:\n{project_context}", prefix="REVIEWER PROJECT")
 
+    session_line = f"Session ID: {session_id}\n" if session_id else ""
+
     user_payload = {
         "goal": goal,
         "planner_json": planner_json or "",
@@ -83,7 +85,7 @@ def review(goal: str, planner_json: str | None, execution_summary: str) -> str:
     if project_context:
         user_payload["project_context"] = project_context
 
-    user_content = json.dumps(user_payload, indent=2)
+    user_content = f"{session_line}" + json.dumps(user_payload, indent=2)
 
     # Log outgoing review request
     log(
