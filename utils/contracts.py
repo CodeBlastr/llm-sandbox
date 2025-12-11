@@ -13,6 +13,9 @@ REPO STRUCTURE CONTRACT (RDM Engine vs Project Workspace)
 Rules:
 - Treat /projects/<project_id>/ as the ONLY place to create, modify, or delete files
   when working on a project.
+- Put all generated deliverables inside /projects/<project_id>/output/ (create it if missing).
+  Use descriptive subfolders inside output/ (e.g., app/, site/, campaign/) but never
+  create another "projects" directory or alternate root inside the workspace.
 - Do NOT modify RDM Engine code (agents, utils, orchestrator, run.py, etc.)
   unless the goal explicitly says you are refactoring the engine itself.
 - If you are unsure where a file should go, default to /projects/<project_id>/.

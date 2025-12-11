@@ -186,7 +186,7 @@ Unit tests and integration tests are essential once the system stabilizes.
   - Produces valid JSON with required keys.
   - Handles missing or partial inputs.
 - Orchestrator tests:
-  - Orchestrates a synthetic plan and stores artifacts correctly.
+- Orchestrates a synthetic plan and stores outputs correctly.
   - Writes PROJECT_INFO.json and run summaries.
 
 ---

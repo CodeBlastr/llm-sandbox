@@ -25,12 +25,13 @@ docker exec -it llm-sandbox bash
 python -m agents.orchestrator -n franchisetalk "Publish hello world to franchisetalk.com"
 ```
 
-## Project artifacts
+## Project output
+- `projects/<project>/output/` – generated deliverables (apps, sites, assets, campaigns)
 - `projects/<project>/runs/` – run summaries
 - `projects/<project>/logs/` – agent logs
 - `projects/memory/` – memory index
 - `projects/<project>/project.yaml` – required project spec
 
 ## Notes
-- The worker is sandboxed to `projects/<project>` via `WORKSPACE_ROOT`.
+- The worker is sandboxed to `projects/<project>` via `WORKSPACE_ROOT`; generated files belong under `projects/<project>/output/` (create if missing).
 - Use `python -m agents.<agent>` to test individual agents if needed.

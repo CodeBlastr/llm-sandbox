@@ -101,6 +101,8 @@ def make_project_dir(project_name: str) -> Path:
 
     path = project_root / project_name
     path.mkdir(parents=True, exist_ok=True)
+    # Standard location for generated assets/deliverables
+    (path / "output").mkdir(exist_ok=True)
 
     return path
 
@@ -158,8 +160,14 @@ def build_how_to_test(goal: str, project_dir: Path) -> str:
     readme = project_dir / "README.md"
     server_run = project_dir / "SERVER_RUN.md"
     start_script = project_dir / "start_server.sh"
+    output_dir = project_dir / "output"
 
     step_num = 2
+
+    if output_dir.exists():
+        lines.append(f"{step_num}. Generated files live under output/. Inspect the contents first:")
+        lines.append(f"   ls {output_dir}")
+        step_num += 1
 
     if readme.exists():
         lines.append(f"{step_num}. Read the README for project-specific setup and usage:")
@@ -268,10 +276,12 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     project_dir = make_project_dir(project_name)
     os.environ["PROJECT_SPEC_PATH"] = str(project_spec_path)
     os.environ["LOG_DIR"] = str(project_spec_path.parent / "logs")
+    os.environ["PROJECT_OUTPUT_DIR"] = str((project_dir / "output").resolve())
     # Constrain worker operations to the project directory
     os.environ["WORKSPACE_ROOT"] = str(project_dir.resolve())
     project_id = project_dir.name
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
+    log(f"Output directory for generated work: {os.environ['PROJECT_OUTPUT_DIR']}", prefix="ORCH PROJECT")
 
     session_state = init_session_state(project_id=project_id, goal=goal, project_root=project_dir)
     session_id = session_state["session_id"]

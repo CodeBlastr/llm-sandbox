@@ -128,8 +128,18 @@ def save_secret(key_name: str, value: str, storage: str = "env") -> None:
 
 
 def build_system_prompt() -> str:
+    workspace_root = os.getenv("WORKSPACE_ROOT", "/workspace")
+    default_output_dir = str(Path(workspace_root) / "output")
+    output_dir = os.getenv("PROJECT_OUTPUT_DIR", default_output_dir)
+    output_note = (
+        f"\nProject output root for this run: {output_dir}\n"
+        "Place all generated files inside this directory (create subfolders as needed). "
+        "Do NOT create nested 'projects' directories or alternate roots."
+    )
     return (
-        f"{REPO_STRUCTURE_CONTRACT}\n\n"
+        f"{REPO_STRUCTURE_CONTRACT}\n"
+        f"\nWorkspace root for this run: {workspace_root}"
+        f"{output_note}\n\n"
         "You are an autonomous software engineer with access to a bash shell.\n"
         "You respond ONLY with valid JSON. The JSON MUST have these keys:\n"
         "  - command: string (the shell command to run, or \"\" if none)\n"
