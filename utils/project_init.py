@@ -135,43 +135,59 @@ def _ensure_project_gitignore(project_dir: Path) -> Path:
     return gitignore_path
 
 
+def _create_initial_commit(project_dir: Path) -> None:
+    """
+    Stage core project files and ensure there is at least one commit.
+    Logs errors if commit fails but does not raise.
+    """
+    gitignore_path = project_dir / ".gitignore"
+    output_dir = project_dir / "output"
+    gitkeep_path = output_dir / ".gitkeep" if output_dir.exists() else None
+
+    add_targets = [str(project_dir / "project.yaml"), str(gitignore_path)]
+    if gitkeep_path and gitkeep_path.exists():
+        add_targets.append(str(gitkeep_path))
+
+    _run_git(["add", *add_targets], project_dir)
+    commit = _run_git(["commit", "-m", "Initialize RDM project workspace"], project_dir)
+    if commit.returncode != 0:
+        log(msg=f"Initial commit failed: {commit.stderr}", prefix="PROJECT INIT")
+
+
 def ensure_project_git_repo(project_dir: Path) -> None:
     """
     If project_dir is not already a git repo, initialize one and create
     an initial commit containing project.yaml and basic scaffolding.
     Does NOT configure any remotes or push.
     """
-    if (project_dir / ".git").exists():
-        return
+    git_dir = project_dir / ".git"
+    if not git_dir.exists():
+        # Prefer main as default branch; fall back silently if -b is unsupported.
+        init_result = subprocess.run(["git", "init", "-b", "main"], cwd=project_dir, check=False)
+        if init_result.returncode != 0:
+            subprocess.run(["git", "init"], cwd=project_dir, check=False)
+            subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=project_dir, check=False)
 
-    # Prefer main as default branch; fall back silently if -b is unsupported.
-    init_result = subprocess.run(["git", "init", "-b", "main"], cwd=project_dir, check=False)
-    if init_result.returncode != 0:
-        subprocess.run(["git", "init"], cwd=project_dir, check=False)
-        subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=project_dir, check=False)
+        git_user_email = os.getenv("GIT_USER_EMAIL")
+        git_user_name = os.getenv("GIT_USER_NAME")
+        if git_user_email:
+            subprocess.run(["git", "config", "user.email", git_user_email], cwd=project_dir, check=False)
+        if git_user_name:
+            subprocess.run(["git", "config", "user.name", git_user_name], cwd=project_dir, check=False)
 
-    git_user_email = os.getenv("GIT_USER_EMAIL")
-    git_user_name = os.getenv("GIT_USER_NAME")
-    if git_user_email:
-        subprocess.run(["git", "config", "user.email", git_user_email], cwd=project_dir, check=False)
-    if git_user_name:
-        subprocess.run(["git", "config", "user.name", git_user_name], cwd=project_dir, check=False)
-
+    # Ensure ignore and placeholder files exist before committing
     gitignore_path = _ensure_project_gitignore(project_dir)
 
     output_dir = project_dir / "output"
-    gitkeep_path = None
     if output_dir.exists():
         output_dir.mkdir(exist_ok=True)
         gitkeep_path = output_dir / ".gitkeep"
         gitkeep_path.touch(exist_ok=True)
 
-    add_targets = [str(project_dir / "project.yaml"), str(gitignore_path)]
-    if gitkeep_path:
-        add_targets.append(str(gitkeep_path))
-
-    subprocess.run(["git", "add"] + add_targets, cwd=project_dir, check=False)
-    subprocess.run(["git", "commit", "-m", "Initialize RDM project workspace"], cwd=project_dir, check=False)
+    # If no commits yet, create the initial commit.
+    head_check = _run_git(["rev-parse", "HEAD"], project_dir)
+    if head_check.returncode != 0:
+        _create_initial_commit(project_dir)
 
 
 def _configure_remote_and_push(project_dir: Path, remote_url: str) -> bool:
@@ -185,6 +201,12 @@ def _configure_remote_and_push(project_dir: Path, remote_url: str) -> bool:
     branch_proc = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], project_dir)
     branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else "main"
     log(msg=f"Pushing branch '{branch}' to {remote_url}", prefix="PROJECT INIT")
+
+    # Ensure there is at least one commit before pushing.
+    head_check = _run_git(["rev-parse", "HEAD"], project_dir)
+    if head_check.returncode != 0:
+        log(msg="Cannot push: branch has no commits (unborn HEAD).", prefix="PROJECT INIT")
+        return False
 
     push = _run_git(["push", "-u", "origin", branch], project_dir)
     if push.returncode != 0:
