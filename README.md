@@ -32,7 +32,7 @@ python -m agents.orchestrator -n franchisetalk "Publish hello world to franchise
 - `projects/<project>/runs/` – run summaries
 - `projects/<project>/logs/` – agent logs
 - `projects/<project>/state.json` – runtime session state (auto-created)
-- `projects/memory/` – memory index
+- `memory/` – memory index (across projects)
 - `projects/<project>/project.yaml` – required project spec
 
 ## Project scaffolding, git, and state
