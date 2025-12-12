@@ -4,8 +4,10 @@ This repo contains a multi-agent pipeline (Orchestrator → Planner → Worker �
 
 ## Prerequisites
 - Docker & Docker Compose
-- An OpenAI API key in `.env` (`OPENAI_API_KEY`)
-- For Cloudflare work: `CLOUDFLARE_API_TOKEN` in `.env`
+- `.env` with:
+  - `OPENAI_API_KEY` (required)
+  - `CLOUDFLARE_API_TOKEN` (if doing Cloudflare work)
+  - `GIT_USER_NAME` and `GIT_USER_EMAIL` (optional; used to set per-project git author)
 
 ## Build and start the container
 ```bash
@@ -13,7 +15,7 @@ docker compose up -d --build
 ```
 
 ## Run a project
-1) Ensure `projects/<project_name>/project.yaml` exists with your project spec.
+1) Kick off a run (the orchestrator will scaffold the project if missing, including `project.yaml`):
 2) From inside the container (or via `docker exec`):
 ```bash
 python -m agents.orchestrator -n <project_name> "<goal>"
