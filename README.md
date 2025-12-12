@@ -31,9 +31,19 @@ python -m agents.orchestrator -n franchisetalk "Publish hello world to franchise
 - `projects/<project>/output/` – generated deliverables (apps, sites, assets, campaigns)
 - `projects/<project>/runs/` – run summaries
 - `projects/<project>/logs/` – agent logs
+- `projects/<project>/state.json` – runtime session state (auto-created)
 - `projects/memory/` – memory index
 - `projects/<project>/project.yaml` – required project spec
+
+## Project scaffolding, git, and state
+- `python -m agents.orchestrator` uses `initialize_project` to create `projects/<name>/`, `output/`, `project.yaml`, and `state.json`.
+- `project.yaml` is auto-generated if missing using the richer schema: `project_id`, `name`, `goal`, `description`, `repo{url,default_branch,ssh_remote_name}`, `default_execution_mode`, `rdm_agents{planner_id,worker_id,qa_id,analyst_id}`, `steps`, `metadata{created_at,tags}`.
+- Each project gets its own git repo on first run:
+  - Initialized on branch `main`, with local git config from `GIT_USER_NAME` / `GIT_USER_EMAIL` if set.
+  - Project-level `.gitignore` ignores `state.json`, `logs/`, `runs/` (output is left trackable).
+  - No remotes are added or pushed; you can add one later inside `projects/<name>`.
 
 ## Notes
 - The worker is sandboxed to `projects/<project>` via `WORKSPACE_ROOT`; generated files belong under `projects/<project>/output/` (create if missing).
 - Use `python -m agents.<agent>` to test individual agents if needed.
+- To inspect a new project repo: `cd projects/<project> && git status` (initial commit contains `project.yaml`, `.gitignore`, and an `output/.gitkeep` placeholder).
