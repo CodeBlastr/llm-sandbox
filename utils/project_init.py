@@ -5,6 +5,8 @@ import datetime as dt
 import yaml
 from pathlib import Path
 
+from utils.github_client import GitHubClientError, create_repo_if_missing
+from utils.logger import log
 from utils.session import init_session_state
 
 
@@ -112,6 +114,10 @@ def _enrich_session_state(state: dict) -> dict:
     return state
 
 
+def _run_git(args: list[str], project_dir: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=project_dir, capture_output=True, text=True, check=False)
+
+
 def _ensure_project_gitignore(project_dir: Path) -> Path:
     gitignore_path = project_dir / ".gitignore"
     desired = ["state.json", "logs/", "runs/", ".DS_Store"]
@@ -168,6 +174,26 @@ def ensure_project_git_repo(project_dir: Path) -> None:
     subprocess.run(["git", "commit", "-m", "Initialize RDM project workspace"], cwd=project_dir, check=False)
 
 
+def _configure_remote_and_push(project_dir: Path, remote_url: str) -> bool:
+    existing_remote = _run_git(["remote", "get-url", "origin"], project_dir)
+    if existing_remote.returncode != 0:
+        add = _run_git(["remote", "add", "origin", remote_url], project_dir)
+        if add.returncode != 0:
+            log(msg=f"Failed to add remote: {add.stderr}", prefix="PROJECT INIT")
+            return False
+
+    branch_proc = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], project_dir)
+    branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else "main"
+    log(msg=f"Pushing branch '{branch}' to {remote_url}", prefix="PROJECT INIT")
+
+    push = _run_git(["push", "-u", "origin", branch], project_dir)
+    if push.returncode != 0:
+        log(msg=f"Failed to push to remote: {push.stderr}", prefix="PROJECT INIT")
+        return False
+
+    return True
+
+
 def initialize_project(goal: str, project_name: str, mode: str) -> dict:
     """
     Centralized project initialization:
@@ -200,6 +226,46 @@ def initialize_project(goal: str, project_name: str, mode: str) -> dict:
     session_state = load_project_state(project_dir)
 
     ensure_project_git_repo(project_dir)
+
+    raw_auto_remote = os.getenv("RDM_AUTO_CREATE_REMOTE", "")
+    auto_remote = raw_auto_remote.lower() in {"1", "true", "yes", "on"}
+    log(msg=f"RDM_AUTO_CREATE_REMOTE={raw_auto_remote}; auto_remote={auto_remote}", prefix="PROJECT INIT")
+    if not auto_remote:
+        log(msg="Skipping remote creation (RDM_AUTO_CREATE_REMOTE not set)", prefix="PROJECT INIT")
+        return {
+            "project_dir": project_dir,
+            "session_state": session_state,
+            "session_id": session_state["session_id"],
+        }
+
+    try:
+        repo_info = create_repo_if_missing(project_name)
+        remote_url = repo_info.get("clone_url") or repo_info.get("ssh_url")
+        if not remote_url:
+            raise GitHubClientError("No remote URL returned from GitHub")
+
+        pushed = _configure_remote_and_push(project_dir, remote_url)
+        if pushed:
+            session_state["repo"] = _merge_defaults(session_state.get("repo"), {"url": remote_url})
+            state_path.write_text(json.dumps(session_state, indent=2))
+
+            project_spec_path = project_dir / "project.yaml"
+            try:
+                with project_spec_path.open() as f:
+                    spec = yaml.safe_load(f) or {}
+            except Exception:
+                spec = {}
+            spec["repo"] = _merge_defaults(spec.get("repo"), {"url": remote_url, "default_branch": None, "ssh_remote_name": None})
+            with project_spec_path.open("w") as f:
+                yaml.safe_dump(spec, f, sort_keys=False)
+
+            log(msg=f"Remote GitHub repo created and pushed: {remote_url}", prefix="PROJECT INIT")
+        else:
+            log(msg="Remote creation succeeded but push failed; continuing locally.", prefix="PROJECT INIT")
+    except GitHubClientError as e:
+        log(msg=f"Remote creation failed: {e}", prefix="PROJECT INIT")
+    except Exception as e:
+        log(msg=f"Unexpected error during remote creation: {e}", prefix="PROJECT INIT")
 
     return {
         "project_dir": project_dir,
