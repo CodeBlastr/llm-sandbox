@@ -7,8 +7,8 @@ from typing import Any, Dict, List
 from utils.logger import log
 
 
-# Store memory under projects/ so project outputs stay grouped
-MEMORY_DIR = Path("projects") / "memory"
+# Store memory at repo root to keep project artifacts separate
+MEMORY_DIR = Path("memory")
 MEMORY_INDEX_PATH = MEMORY_DIR / "project_index.json"
 
 
@@ -20,16 +20,19 @@ def load_project_index() -> List[Dict[str, Any]]:
     """Load the project memory index, returning an empty list if missing/invalid."""
     _ensure_memory_dir()
 
-    if not MEMORY_INDEX_PATH.exists():
+    def _read(path: Path) -> List[Dict[str, Any]]:
+        try:
+            with path.open() as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except Exception as e:
+            log(msg=f"Failed to read memory index at {path}: {e}", prefix="MEMORY WARN")
         return []
 
-    try:
-        with MEMORY_INDEX_PATH.open() as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return data
-    except Exception as e:
-        log(msg=f"Failed to read memory index: {e}", prefix="MEMORY WARN")
+    # Prefer new location; fall back to legacy path and migrate on next save.
+    if MEMORY_INDEX_PATH.exists():
+        return _read(MEMORY_INDEX_PATH)
 
     return []
 

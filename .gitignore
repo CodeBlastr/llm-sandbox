@@ -89,4 +89,5 @@ Pipfile.lock
 
 # Ignore projects directory
 projects/
+memory/
 .config

@@ -3,18 +3,22 @@ import json
 import os
 import re
 import datetime
+import sys
 from pathlib import Path
 
-import yaml
+# Ensure repository root is on sys.path when executed as a script (python agents/orchestrator.py)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from agents.classifier import classify_task
 from agents.planner import plan as planner_plan
 from agents.worker import run_worker, run_worker_simple
 from agents.reviewer import review
+from utils.project_init import initialize_project
 from utils.logger import log
 from utils.memory import update_project_memory
 from utils.project import load_project_spec, summarize_project_spec
-from utils.session import init_session_state
 
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -94,41 +98,6 @@ def slugify(text: str) -> str:
     text = re.sub(r"[^a-z0-9]+", "-", text)
     text = re.sub(r"-+", "-", text).strip("-")
     return text or "task"
-
-def make_project_dir(project_name: str) -> Path:
-    """Ensure a project directory exists under ./projects for the given name."""
-    project_root = Path("projects")
-    project_root.mkdir(exist_ok=True)
-
-    path = project_root / project_name
-    path.mkdir(parents=True, exist_ok=True)
-    # Standard location for generated assets/deliverables
-    (path / "output").mkdir(exist_ok=True)
-
-    return path
-
-
-def ensure_project_spec(project_name: str, project_spec_path: Path) -> None:
-    """Create a minimal project.yaml if missing, using local prompts (no LLM)."""
-    if project_spec_path.exists():
-        return
-
-    project_spec_path.parent.mkdir(parents=True, exist_ok=True)
-
-    print(f"Project spec not found at {project_spec_path}.")
-    name = input(f"Enter project display name [{project_name}]: ").strip() or project_name
-    description = input("Enter project description: ").strip() or ""
-
-    data = {
-        "project_id": project_name,
-        "name": name,
-        "description": description,
-    }
-
-    with project_spec_path.open("w") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
-
-    print(f"Created minimal project spec at {project_spec_path}")
 
 
 def make_run_filename(goal: str, project_dir: Path) -> Path:
@@ -259,7 +228,7 @@ def verify_project_spec_access(project_path: str | Path):
     print(f"[ORCH] Project spec summary: {summary}")
 
 
-def orchestrate(goal: str, project_name: str, project_spec_path: Path):
+def orchestrate(goal: str, project_name: str):
     """
     Orchestrator:
       - Takes CEO-level goal
@@ -277,12 +246,14 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     mode = "simple" if task_classification == "simple" else "pipeline"
     log(f"Task classification: {task_classification}; mode={mode}", prefix="ORCH MODE")
 
-    if not project_spec_path.exists():
-        raise FileNotFoundError(
-            f"project.yaml is required at {project_spec_path}. Provide a project name with -n and ensure the file exists."
-        )
+    project_init = initialize_project(goal=goal, project_name=project_name, mode=mode)
+    project_dir = project_init["project_dir"]
+    session_state = project_init["session_state"]
+    session_id = project_init["session_id"]
+    project_spec_path = project_dir / "project.yaml"
+    state_path = project_dir / "state.json"
+    log(msg=f"Using state file at: {state_path} (exists={state_path.exists()})", prefix="ORCH STATE")
 
-    project_dir = make_project_dir(project_name)
     os.environ["PROJECT_SPEC_PATH"] = str(project_spec_path)
     os.environ["LOG_DIR"] = str(project_spec_path.parent / "logs")
     os.environ["PROJECT_OUTPUT_DIR"] = str((project_dir / "output").resolve())
@@ -292,8 +263,6 @@ def orchestrate(goal: str, project_name: str, project_spec_path: Path):
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
     log(f"Output directory for generated work: {os.environ['PROJECT_OUTPUT_DIR']}", prefix="ORCH PROJECT")
 
-    session_state = init_session_state(project_id=project_id, goal=goal, project_root=project_dir, mode=mode)
-    session_id = session_state["session_id"]
     log(f"Session started: session_id={session_id}", prefix="ORCH SESSION")
 
     # Simple mode: single Worker call, no planner/reviewer
@@ -522,13 +491,10 @@ def main():
     if not goal:
         raise ValueError("Goal is required.")
 
-    project_spec_path = Path("projects") / project_name / "project.yaml"
-    ensure_project_spec(project_name, project_spec_path)
-
-    result = orchestrate(goal, project_name=project_name, project_spec_path=project_spec_path)
+    result = orchestrate(goal, project_name=project_name)
 
     # Save result to a JSON file with a descriptive name inside the project directory
-    output_path = make_run_filename(goal, project_dir=Path(result.get("project_dir", project_dir)))
+    output_path = make_run_filename(goal, project_dir=Path(result["project_dir"]))
     with output_path.open("w") as f:
         json.dump(result, f, indent=2)
 
