@@ -176,18 +176,34 @@ def ensure_project_git_repo(project_dir: Path) -> None:
             subprocess.run(["git", "config", "user.name", git_user_name], cwd=project_dir, check=False)
 
     # Ensure ignore and placeholder files exist before committing
-    gitignore_path = _ensure_project_gitignore(project_dir)
+    _ensure_project_gitignore(project_dir)
 
     output_dir = project_dir / "output"
-    if output_dir.exists():
-        output_dir.mkdir(exist_ok=True)
-        gitkeep_path = output_dir / ".gitkeep"
-        gitkeep_path.touch(exist_ok=True)
+    output_dir.mkdir(exist_ok=True)
+    gitkeep_path = output_dir / ".gitkeep"
+    gitkeep_path.touch(exist_ok=True)
 
-    # If no commits yet, create the initial commit.
+    # If no commits yet, stage core files and create the initial commit.
     head_check = _run_git(["rev-parse", "HEAD"], project_dir)
     if head_check.returncode != 0:
-        _create_initial_commit(project_dir)
+        add_targets: list[str] = []
+        if (project_dir / "project.yaml").exists():
+            add_targets.append("project.yaml")
+        if (project_dir / ".gitignore").exists():
+            add_targets.append(".gitignore")
+        if (project_dir / "output" / ".gitkeep").exists():
+            add_targets.append("output/.gitkeep")
+
+        if add_targets:
+            add_result = _run_git(["add", *add_targets], project_dir)
+            if add_result.returncode != 0:
+                log(msg=f"Initial git add failed: {add_result.stderr}", prefix="PROJECT INIT")
+
+            commit_result = _run_git(["commit", "-m", "Initialize RDM project workspace"], project_dir)
+            if commit_result.returncode != 0:
+                log(msg=f"Initial commit failed: {commit_result.stderr}", prefix="PROJECT INIT")
+        else:
+            log(msg="Initial commit skipped: no files found to add.", prefix="PROJECT INIT")
 
 
 def _configure_remote_and_push(project_dir: Path, remote_url: str) -> bool:
