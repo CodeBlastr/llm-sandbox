@@ -8,6 +8,8 @@ from pathlib import Path
 from utils.github_client import GitHubClientError, create_repo_if_missing
 from utils.logger import log
 from utils.session import init_session_state
+from urllib.parse import urlparse, urlunparse
+
 
 
 def make_project_dir(project_name: str) -> Path:
@@ -115,14 +117,20 @@ def _enrich_session_state(state: dict) -> dict:
 
 
 def _run_git(args: list[str], project_dir: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=project_dir, capture_output=True, text=True, check=False)
+    return subprocess.run(
+        ["git", *args],
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def _ensure_project_gitignore(project_dir: Path) -> Path:
     gitignore_path = project_dir / ".gitignore"
     desired = ["state.json", "logs/", "runs/", ".DS_Store"]
 
-    existing = []
+    existing: list[str] = []
     if gitignore_path.exists():
         existing = [line.rstrip("\n") for line in gitignore_path.read_text().splitlines()]
 
@@ -135,32 +143,17 @@ def _ensure_project_gitignore(project_dir: Path) -> Path:
     return gitignore_path
 
 
-def _create_initial_commit(project_dir: Path) -> None:
-    """
-    Stage core project files and ensure there is at least one commit.
-    Logs errors if commit fails but does not raise.
-    """
-    gitignore_path = project_dir / ".gitignore"
-    output_dir = project_dir / "output"
-    gitkeep_path = output_dir / ".gitkeep" if output_dir.exists() else None
-
-    add_targets = [str(project_dir / "project.yaml"), str(gitignore_path)]
-    if gitkeep_path and gitkeep_path.exists():
-        add_targets.append(str(gitkeep_path))
-
-    _run_git(["add", *add_targets], project_dir)
-    commit = _run_git(["commit", "-m", "Initialize RDM project workspace"], project_dir)
-    if commit.returncode != 0:
-        log(msg=f"Initial commit failed: {commit.stderr}", prefix="PROJECT INIT")
-
-
 def ensure_project_git_repo(project_dir: Path) -> None:
     """
-    If project_dir is not already a git repo, initialize one and create
-    an initial commit containing project.yaml and basic scaffolding.
+    Ensure project_dir is a git repo with at least one commit.
+    - Init repo (main branch) if .git is missing.
+    - Ensure .gitignore and output/.gitkeep exist.
+    - If no commits yet, stage core files and create an initial commit.
     Does NOT configure any remotes or push.
     """
     git_dir = project_dir / ".git"
+
+    # 1) Initialize repo if needed
     if not git_dir.exists():
         # Prefer main as default branch; fall back silently if -b is unsupported.
         init_result = subprocess.run(["git", "init", "-b", "main"], cwd=project_dir, check=False)
@@ -175,7 +168,7 @@ def ensure_project_git_repo(project_dir: Path) -> None:
         if git_user_name:
             subprocess.run(["git", "config", "user.name", git_user_name], cwd=project_dir, check=False)
 
-    # Ensure ignore and placeholder files exist before committing
+    # 2) Ensure ignore and placeholder files exist before committing
     _ensure_project_gitignore(project_dir)
 
     output_dir = project_dir / "output"
@@ -183,7 +176,7 @@ def ensure_project_git_repo(project_dir: Path) -> None:
     gitkeep_path = output_dir / ".gitkeep"
     gitkeep_path.touch(exist_ok=True)
 
-    # If no commits yet, stage core files and create the initial commit.
+    # 3) If no commits yet, stage core files (relative paths) and create the initial commit.
     head_check = _run_git(["rev-parse", "HEAD"], project_dir)
     if head_check.returncode != 0:
         add_targets: list[str] = []
@@ -198,12 +191,33 @@ def ensure_project_git_repo(project_dir: Path) -> None:
             add_result = _run_git(["add", *add_targets], project_dir)
             if add_result.returncode != 0:
                 log(msg=f"Initial git add failed: {add_result.stderr}", prefix="PROJECT INIT")
+                return
 
             commit_result = _run_git(["commit", "-m", "Initialize RDM project workspace"], project_dir)
             if commit_result.returncode != 0:
                 log(msg=f"Initial commit failed: {commit_result.stderr}", prefix="PROJECT INIT")
         else:
             log(msg="Initial commit skipped: no files found to add.", prefix="PROJECT INIT")
+
+def _build_authed_url(remote_url: str) -> str | None:
+    """
+    Build an HTTPS URL that includes a GitHub token as basic auth, so git push
+    can run non-interactively inside the container.
+
+    Returns None if GITHUB_TOKEN is missing.
+    """
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return None
+
+    parsed = urlparse(remote_url)
+    # If userinfo is already present, don't touch it.
+    if "@" in parsed.netloc:
+        return remote_url
+
+    # GitHub recommends using 'x-access-token' as the username with a PAT.
+    authed_netloc = f"x-access-token:{token}@{parsed.netloc}"
+    return urlunparse(parsed._replace(netloc=authed_netloc))
 
 
 def _configure_remote_and_push(project_dir: Path, remote_url: str) -> bool:
@@ -224,7 +238,15 @@ def _configure_remote_and_push(project_dir: Path, remote_url: str) -> bool:
         log(msg="Cannot push: branch has no commits (unborn HEAD).", prefix="PROJECT INIT")
         return False
 
-    push = _run_git(["push", "-u", "origin", branch], project_dir)
+    # Build an authenticated URL for push so git doesn't prompt for username/password.
+    authed_url = _build_authed_url(remote_url)
+    if authed_url:
+        push_args = ["push", "-u", authed_url, branch]
+    else:
+        # Fallback: rely on any configured credential helper (may still prompt).
+        push_args = ["push", "-u", "origin", branch]
+
+    push = _run_git(push_args, project_dir)
     if push.returncode != 0:
         log(msg=f"Failed to push to remote: {push.stderr}", prefix="PROJECT INIT")
         return False
@@ -293,7 +315,10 @@ def initialize_project(goal: str, project_name: str, mode: str) -> dict:
                     spec = yaml.safe_load(f) or {}
             except Exception:
                 spec = {}
-            spec["repo"] = _merge_defaults(spec.get("repo"), {"url": remote_url, "default_branch": None, "ssh_remote_name": None})
+            spec["repo"] = _merge_defaults(
+                spec.get("repo"),
+                {"url": remote_url, "default_branch": None, "ssh_remote_name": None},
+            )
             with project_spec_path.open("w") as f:
                 yaml.safe_dump(spec, f, sort_keys=False)
 
