@@ -20,6 +20,7 @@ from utils.project_init import initialize_project
 from utils.logger import log
 from utils.memory import update_project_memory
 from utils.project import load_project_spec, summarize_project_spec
+from utils.run_state import load_and_increment_run_number
 
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -67,6 +68,7 @@ def execute_steps(
     project_dir: Path,
     attempt_label: str,
     session_id: str | None = None,
+    run_number: int | None = None,
 ) -> tuple[list, dict | None]:
     execution_results = []
     stop_info = None
@@ -100,6 +102,7 @@ def execute_steps(
             worker_history=worker_history,
             session_id=session_id,
             attempt_label=attempt_label,
+            run_number=run_number,
         )
 
         if publish_result.get("should_stop"):
@@ -280,6 +283,7 @@ def orchestrate(goal: str, project_name: str):
     # Constrain worker operations to the project directory
     os.environ["WORKSPACE_ROOT"] = str(project_dir.resolve())
     project_id = project_dir.name
+    run_number = load_and_increment_run_number(project_dir)
     log(f"Project directory for this run: {project_dir}", prefix="ORCH PROJECT")
     log(f"Output directory for generated work: {os.environ['PROJECT_OUTPUT_DIR']}", prefix="ORCH PROJECT")
 
@@ -330,6 +334,7 @@ def orchestrate(goal: str, project_name: str):
             worker_history=worker_history,
             session_id=session_id,
             attempt_label="simple",
+            run_number=run_number,
         )
 
         if publish_result.get("status") in {"awaiting_manual_approval", "merge_blocked"}:
@@ -381,7 +386,13 @@ def orchestrate(goal: str, project_name: str):
     combined_plans = {"initial_plan": planner_json, "repair_plans": []}
 
     # 2) Execute initial plan
-    execution_results, stop_info = execute_steps(steps, project_dir, attempt_label="initial", session_id=session_id)
+    execution_results, stop_info = execute_steps(
+        steps,
+        project_dir,
+        attempt_label="initial",
+        session_id=session_id,
+        run_number=run_number,
+    )
     if stop_info:
         completed_at = datetime.datetime.utcnow().isoformat()
         status = stop_info.get("status", "merge_blocked")
@@ -488,6 +499,7 @@ def orchestrate(goal: str, project_name: str):
             project_dir,
             attempt_label=f"repair-{repair_attempts}",
             session_id=session_id,
+            run_number=run_number,
         )
         execution_results.extend(repair_results)
         if stop_info:

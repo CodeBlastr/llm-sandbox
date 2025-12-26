@@ -104,12 +104,12 @@ def _resolve_approval_mode() -> tuple[str, str | None]:
     return "auto", raw_value
 
 
-def _build_branch_name(step_id: str, description: str, attempt_label: str) -> str:
+def _build_branch_name(run_number: str, step_id: str, description: str, attempt_label: str) -> str:
     slug_source = description or "step"
     if attempt_label and attempt_label != "initial":
         slug_source = f"{slug_source}-{attempt_label}"
     slug = _slugify(slug_source, max_len=40)
-    return f"rdm/step-{step_id}-{slug}"
+    return f"rdm/run-{run_number}-step-{step_id}-{slug}"
 
 
 def _summarize_commands(worker_history: list[dict]) -> list[str]:
@@ -121,8 +121,15 @@ def _summarize_commands(worker_history: list[dict]) -> list[str]:
     return commands
 
 
-def _build_pr_body(session_id: str | None, step_id: str, commands: list[str], files: list[str]) -> str:
+def _build_pr_body(
+    run_number: str,
+    session_id: str | None,
+    step_id: str,
+    commands: list[str],
+    files: list[str],
+) -> str:
     lines = [
+        f"Run Number: {run_number}",
         f"Session ID: {session_id or 'unknown'}",
         f"Step Number: {step_id}",
         "",
@@ -180,8 +187,10 @@ def publish_step_pr(
     worker_history: list[dict],
     session_id: str | None,
     attempt_label: str,
+    run_number: int | None,
 ) -> dict:
     step_label = str(step_id) if step_id is not None else "unknown"
+    run_label = str(run_number) if run_number is not None else "unknown"
     mode, invalid_mode = _resolve_approval_mode()
     log(msg=f"RDM_PR_APPROVAL_MODE={mode}", prefix="ORCH PR")
     if invalid_mode:
@@ -238,7 +247,8 @@ def publish_step_pr(
             "mode": mode,
         }
 
-    title = f"RDM Step {step_label}: {_short_goal(description)}"
+    project_id = project_dir.name
+    title = f"{project_id} - Run {run_label} / Step {step_label} - {_short_goal(description)}"
     commit = _run_git(["commit", "-m", title], project_dir)
     if commit.returncode != 0:
         return _blocked(f"Git commit failed for step {step_label}: {commit.stderr}")
@@ -253,7 +263,7 @@ def publish_step_pr(
         return _blocked(f"Failed to parse GitHub remote for step {step_label}: {remote_url}")
     owner, repo = owner_repo
 
-    branch = _build_branch_name(step_label, description, attempt_label)
+    branch = _build_branch_name(run_label, step_label, description, attempt_label)
     push_url = _build_authed_url(remote_url)
     if push_url:
         push = _run_git(["push", push_url, f"HEAD:refs/heads/{branch}"], project_dir)
@@ -267,7 +277,7 @@ def publish_step_pr(
         repo_info = get_repo_info(owner, repo)
         base_branch = repo_info.get("default_branch") or "main"
         commands = _summarize_commands(worker_history)
-        body = _build_pr_body(session_id, step_label, commands, files)
+        body = _build_pr_body(run_label, session_id, step_label, commands, files)
         pr = create_pull_request(
             owner=owner,
             repo=repo,
