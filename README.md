@@ -2,6 +2,12 @@
 
 This repo contains a multi-agent pipeline (Orchestrator → Planner → Worker → Reviewer) with project-specific specs stored under `projects/<project>/project.yaml`. Runs, logs, and memory stay inside the project tree.
 
+## What RDM is NOT
+
+- An AI model 
+- A finished product
+- A way to be lazy
+
 ## Prerequisites
 - Docker & Docker Compose
 - `.env` with:

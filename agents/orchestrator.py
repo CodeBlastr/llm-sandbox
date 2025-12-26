@@ -15,6 +15,7 @@ from agents.classifier import classify_task
 from agents.planner import plan as planner_plan
 from agents.worker import run_worker, run_worker_simple
 from agents.reviewer import review
+from utils.github_publisher import publish_step_pr
 from utils.project_init import initialize_project
 from utils.logger import log
 from utils.memory import update_project_memory
@@ -84,6 +85,15 @@ def execute_steps(steps: list, project_dir: Path, attempt_label: str, session_id
         log(
             msg=f"Step {step_id} ({attempt_label}) completed. History length: {len(worker_history)}",
             prefix="ORCH STEP DONE"
+        )
+
+        publish_step_pr(
+            project_dir=project_dir,
+            step_id=step_id,
+            description=description,
+            worker_history=worker_history,
+            session_id=session_id,
+            attempt_label=attempt_label,
         )
 
     return execution_results
@@ -301,6 +311,15 @@ def orchestrate(goal: str, project_name: str):
             final_plan=None,
             mode=mode,
             classification=task_classification,
+        )
+
+        publish_step_pr(
+            project_dir=project_dir,
+            step_id=1,
+            description=goal,
+            worker_history=worker_history,
+            session_id=session_id,
+            attempt_label="simple",
         )
 
         summary = {

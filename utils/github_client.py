@@ -95,4 +95,37 @@ def create_repo_if_missing(project_name: str) -> dict:
     return _create_repo(owner, project_name, token)
 
 
-__all__ = ["create_repo_if_missing", "GitHubClientError"]
+def get_repo_info(owner: str, name: str) -> dict:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise GitHubClientError("GITHUB_TOKEN is missing from environment.")
+
+    repo = _get_repo(owner, name, token)
+    if repo:
+        return repo
+    raise GitHubClientError(f"Repo not found: {owner}/{name}")
+
+
+def create_pull_request(owner: str, repo: str, title: str, body: str, head: str, base: str) -> dict:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise GitHubClientError("GITHUB_TOKEN is missing from environment.")
+
+    payload = {
+        "title": title,
+        "body": body,
+        "head": head,
+        "base": base,
+    }
+    status, data = _request("POST", f"{API_ROOT}/repos/{owner}/{repo}/pulls", token, payload)
+    if status in {200, 201}:
+        return data
+    raise GitHubClientError(f"Failed to create pull request (status {status}): {data}")
+
+
+__all__ = [
+    "create_repo_if_missing",
+    "create_pull_request",
+    "get_repo_info",
+    "GitHubClientError",
+]
