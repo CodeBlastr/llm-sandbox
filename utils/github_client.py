@@ -123,9 +123,24 @@ def create_pull_request(owner: str, repo: str, title: str, body: str, head: str,
     raise GitHubClientError(f"Failed to create pull request (status {status}): {data}")
 
 
+def merge_pull_request(
+    owner: str,
+    repo: str,
+    pull_number: int,
+    merge_method: str = "merge",
+) -> tuple[int, dict]:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise GitHubClientError("GITHUB_TOKEN is missing from environment.")
+
+    payload = {"merge_method": merge_method}
+    return _request("PUT", f"{API_ROOT}/repos/{owner}/{repo}/pulls/{pull_number}/merge", token, payload)
+
+
 __all__ = [
     "create_repo_if_missing",
     "create_pull_request",
+    "merge_pull_request",
     "get_repo_info",
     "GitHubClientError",
 ]

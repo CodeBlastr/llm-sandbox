@@ -62,8 +62,14 @@ def build_fix_request(goal: str, project_dir: Path, review_data: dict) -> str:
     )
 
 
-def execute_steps(steps: list, project_dir: Path, attempt_label: str, session_id: str | None = None) -> list:
+def execute_steps(
+    steps: list,
+    project_dir: Path,
+    attempt_label: str,
+    session_id: str | None = None,
+) -> tuple[list, dict | None]:
     execution_results = []
+    stop_info = None
     for step in steps:
         step_id = step.get("id")
         description = step.get("description", "")
@@ -87,7 +93,7 @@ def execute_steps(steps: list, project_dir: Path, attempt_label: str, session_id
             prefix="ORCH STEP DONE"
         )
 
-        publish_step_pr(
+        publish_result = publish_step_pr(
             project_dir=project_dir,
             step_id=step_id,
             description=description,
@@ -96,7 +102,11 @@ def execute_steps(steps: list, project_dir: Path, attempt_label: str, session_id
             attempt_label=attempt_label,
         )
 
-    return execution_results
+        if publish_result.get("should_stop"):
+            stop_info = publish_result
+            break
+
+    return execution_results, stop_info
 
 
 def slugify(text: str) -> str:
@@ -313,7 +323,7 @@ def orchestrate(goal: str, project_name: str):
             classification=task_classification,
         )
 
-        publish_step_pr(
+        publish_result = publish_step_pr(
             project_dir=project_dir,
             step_id=1,
             description=goal,
@@ -321,6 +331,10 @@ def orchestrate(goal: str, project_name: str):
             session_id=session_id,
             attempt_label="simple",
         )
+
+        if publish_result.get("status") in {"awaiting_manual_approval", "merge_blocked"}:
+            status = publish_result["status"]
+            remaining_issues = True
 
         summary = {
             "goal": goal,
@@ -367,7 +381,60 @@ def orchestrate(goal: str, project_name: str):
     combined_plans = {"initial_plan": planner_json, "repair_plans": []}
 
     # 2) Execute initial plan
-    execution_results = execute_steps(steps, project_dir, attempt_label="initial", session_id=session_id)
+    execution_results, stop_info = execute_steps(steps, project_dir, attempt_label="initial", session_id=session_id)
+    if stop_info:
+        completed_at = datetime.datetime.utcnow().isoformat()
+        status = stop_info.get("status", "merge_blocked")
+        review_data = {
+            "overall_assessment": (
+                f"Orchestration stopped after step {stop_info.get('step_id')} with status {status}."
+            ),
+            "issues": [],
+            "suggestions": [],
+        }
+        remaining_issues = True
+        write_project_summary(
+            project_dir=project_dir,
+            goal=goal,
+            planner_json=planner_json,
+            execution_results=execution_results,
+            review_data=review_data,
+            repair_attempts=0,
+            plans=combined_plans,
+            status=status,
+            blocking_issues_remaining=remaining_issues,
+            started_at=started_at,
+            completed_at=completed_at,
+            final_plan=planner_json,
+            mode=mode,
+            classification=task_classification,
+        )
+
+        summary = {
+            "goal": goal,
+            "project_id": project_id,
+            "project_dir": str(project_dir),
+            "mode": mode,
+            "classification": task_classification,
+            "steps_executed": len(execution_results),
+            "repair_attempts": 0,
+            "results": execution_results,
+            "review": review_data,
+            "plans": combined_plans,
+            "plan": planner_json,
+            "status": status,
+            "blocking_issues_remaining": remaining_issues,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "final_plan": planner_json,
+        }
+
+        log(
+            msg=f"ORCHESTRATION STOPPED — status={status}; steps executed: {len(execution_results)}",
+            prefix="ORCH COMPLETE",
+        )
+
+        return summary
 
     # 3) First review
     execution_text = build_execution_summary(execution_results)
@@ -416,9 +483,68 @@ def orchestrate(goal: str, project_name: str):
             )
             break
 
-        execution_results.extend(
-            execute_steps(repair_steps, project_dir, attempt_label=f"repair-{repair_attempts}", session_id=session_id)
+        repair_results, stop_info = execute_steps(
+            repair_steps,
+            project_dir,
+            attempt_label=f"repair-{repair_attempts}",
+            session_id=session_id,
         )
+        execution_results.extend(repair_results)
+        if stop_info:
+            completed_at = datetime.datetime.utcnow().isoformat()
+            status = stop_info.get("status", "merge_blocked")
+            review_data = {
+                "overall_assessment": (
+                    f"Orchestration stopped after step {stop_info.get('step_id')} with status {status}."
+                ),
+                "issues": [],
+                "suggestions": [],
+            }
+            remaining_issues = True
+            final_plan = repair_plan_json
+
+            write_project_summary(
+                project_dir=project_dir,
+                goal=goal,
+                planner_json=planner_json,
+                execution_results=execution_results,
+                review_data=review_data,
+                repair_attempts=repair_attempts,
+                plans=combined_plans,
+                status=status,
+                blocking_issues_remaining=remaining_issues,
+                started_at=started_at,
+                completed_at=completed_at,
+                final_plan=final_plan,
+                mode=mode,
+                classification=task_classification,
+            )
+
+            summary = {
+                "goal": goal,
+                "project_id": project_id,
+                "project_dir": str(project_dir),
+                "mode": mode,
+                "classification": task_classification,
+                "steps_executed": len(execution_results),
+                "repair_attempts": repair_attempts,
+                "results": execution_results,
+                "review": review_data,
+                "plans": combined_plans,
+                "plan": planner_json,
+                "status": status,
+                "blocking_issues_remaining": remaining_issues,
+                "started_at": started_at,
+                "completed_at": completed_at,
+                "final_plan": final_plan,
+            }
+
+            log(
+                msg=f"ORCHESTRATION STOPPED — status={status}; steps executed: {len(execution_results)}",
+                prefix="ORCH COMPLETE",
+            )
+
+            return summary
 
         execution_text = build_execution_summary(execution_results)
         review_json = review(
