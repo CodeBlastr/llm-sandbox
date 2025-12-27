@@ -6,6 +6,8 @@ import datetime
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Ensure repository root is on sys.path when executed as a script (python agents/orchestrator.py)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -24,6 +26,23 @@ from utils.run_state import load_and_increment_run_number
 
 
 MAX_REPAIR_ATTEMPTS = 2
+
+
+def load_env_for_project(project_name: str) -> None:
+    project_env = Path("projects") / project_name / ".env"
+    repo_env = REPO_ROOT / ".env"
+
+    if project_env.exists():
+        load_dotenv(dotenv_path=project_env, override=False)
+        log(msg=f"Loaded .env from {project_env}", prefix="ORCH ENV")
+        return
+
+    if repo_env.exists():
+        load_dotenv(dotenv_path=repo_env, override=False)
+        log(msg=f"Loaded .env from {repo_env}", prefix="ORCH ENV")
+        return
+
+    log(msg="No .env found for project or repo root; skipping.", prefix="ORCH ENV")
 
 
 def has_blocking_issues(review_data: dict) -> bool:
@@ -263,6 +282,7 @@ def orchestrate(goal: str, project_name: str):
     """
 
     started_at = datetime.datetime.utcnow().isoformat()
+    load_env_for_project(project_name)
     log(f"ORCHESTRATOR START — CEO GOAL:\n{goal}", prefix="ORCH START")
 
     task_classification = classify_task(goal)
