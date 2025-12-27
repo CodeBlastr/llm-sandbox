@@ -1,243 +1,130 @@
-# ROADMAP.md
-_High-level roadmap for evolving the local multi-agent system_
+# RDM – Roadmap
 
-This document describes the **forward-looking roadmap** for the AI engineering framework.
-
-> Note: Earlier design discussions included:
-> - Step 1: Self-repair loop (Reviewer → Planner → Worker → Reviewer)
-> - Step 2: Memory layer (persistent knowledge across runs)
->
-> Those two are **intentionally omitted** from this roadmap file, as they will be implemented interactively.
+This roadmap is ordered to maximize safety first, autonomy second, and growth third.
 
 ---
 
-## 3. Replace Raw Bash With a Structured Tool Layer
+## Phase 1: Safe Autonomy (Current Focus)
 
-Currently, the Worker agent outputs raw bash commands. This is powerful but brittle and risky.
+### 1. Auto-Merge Safety Gates (Deterministic)
+**Purpose:** Prevent catastrophic merges before adding more AI autonomy.
 
-### Goals
+Planned rules:
+- Path allowlist:
+  - Auto-merge ONLY if all changes are within:
+    - `projects/<id>/`
+    - (optionally) `projects/<id>/output/`
+    - plus known metadata files (e.g., PROJECT_INFO.json)
+- Hard-stop paths:
+  - `/agents`, `/utils`, root infra, auth/secrets → manual only
+- Diff thresholds:
+  - Max files changed
+  - Max lines added/removed
+- Hard-stop patterns:
+  - secrets
+  - destructive shell commands
+  - env / credential manipulation
 
-- Introduce a **tool API** that the Worker calls instead of raw shell.
-- Make all file and process operations go through well-defined Python functions.
-- Improve safety, auditability, and reliability.
-
-### Key Tools (Initial Set)
-
-- `read_file(path)`
-- `write_file(path, content)`
-- `append_file(path, content)`
-- `list_dir(path)`
-- `remove_file(path)`
-- `copy_file(src, dst)`
-- `run_process(command, args, cwd)`
-- `git_status()`
-- `git_diff()`
-- `git_commit(message)`
-
-### Changes Required
-
-- Update Worker system prompt:
-  - Instead of `"command": "<bash string>"`, allow something like `"tool_call": { ... }`.
-- Implement a tool dispatcher in Python:
-  - Parse the Worker JSON.
-  - Dispatch to the correct tool implementation.
-  - Capture success/failure and log everything.
-- Add safety rules:
-  - Restrict filesystem paths to project directories.
-  - Disallow destructive operations outside the sandbox.
+Outcome:
+- `auto` mode is safe to leave running.
+- `manual` mode remains available as override.
 
 ---
 
-## 4. Add a DockerOps Agent for Multi-Container Workflows
+## Phase 2: PR Review Agent (AI Gate)
 
-The system will eventually need to interact with **sibling containers** for integration tests, services, and databases.
+### 2. AI PR Reviewer (Diff-Only)
+**Purpose:** Catch logic issues and risky behavior beyond static rules.
 
-### Goals
+Design:
+- Runs ONLY after deterministic gates pass.
+- Consumes:
+  - PR diff
+  - file list
+  - policy results
+- Outputs structured JSON:
+  - decision: approve | manual_required | block
+  - risk level
+  - notes + checklist
 
-- Provide a dedicated Docker operations agent (DockerOps).
-- Allow Planner/Orchestrator to ask DockerOps to:
-  - Inspect containers.
-  - Execute commands in other containers.
-  - Tail logs.
-  - Restart services.
+Behavior:
+- Posts review as a PR comment.
+- Auto-merge proceeds only if:
+  - mode=auto
+  - decision=approve
 
-### Key Capabilities
-
-- `docker_ps()` – list running containers.
-- `docker_exec(container_name, command)`
-- `docker_logs(container_name, tail=N)`
-- `docker_restart(container_name)`
-
-### Implementation Sketch
-
-- Mount the Docker socket into the agent container:
-  - `/var/run/docker.sock:/var/run/docker.sock`
-- Implement DockerOps as:
-  - A separate Python module and/or agent with its own system prompt.
-  - A set of tools called by the Orchestrator or Planner.
-- Extend Orchestrator to:
-  - Ask DockerOps to stand up or validate services as part of a run.
-  - Include DockerOps outputs in the execution summary and review.
+Optional:
+- Pluggable reviewer backend (OpenAI, Claude, etc.)
+- Controlled via env var: `RDM_PR_REVIEW=on|off`
 
 ---
 
-## 5. Move Planner and Reviewer to Server-Side Agents (OpenAI Agents Platform)
+## Phase 3: Test Writer + Regression Safety
 
-Once local behavior is stable, Planner and Reviewer can be migrated to OpenAI’s Agent Platform.
+### 3. Test Writer Agent (Per-PR)
+**Purpose:** Ensure new steps don’t silently break prior functionality.
 
-### Goals
+Strategy:
+- Each PR may trigger a **Test Writer Agent** that:
+  - Generates or updates tests relevant to the change
+  - Writes tests adjacent to project output
+- Tests are:
+  - Minimal
+  - Fast
+  - Focused on contract/regression, not perfection
 
-- Reduce per-call token overhead for system prompts.
-- Centralize agent configuration (instructions, tools, safety).
-- Use prompt caching and server-side optimizations.
+Policies:
+- Small/simple PRs → tests optional
+- Multi-step or stateful PRs → tests required
+- Missing tests in auto mode → downgrade to manual approval
 
-### Migration Steps
-
-- Extract current Planner and Reviewer prompts into standalone agent definitions.
-- Register any necessary tools (if/when used) on the platform.
-- Update local code to:
-  - Call Planner and Reviewer via their agent IDs instead of raw `chat.completions`.
-- Keep Worker and DockerOps local:
-  - They run code, access the filesystem, and interact with Docker.
-
----
-
-## 6. Unified CLI for CEO-Level Commands
-
-The system is currently invoked via different entrypoints:
-
-- `python -m agents.orchestrator`
-- `python run.py`
-- `python -m agents.planner`
-- `python -m agents.reviewer`
-
-### Goal
-
-Create a single CLI script to drive the entire system in a consistent way.
-
-### Example Commands
-
-- `ai build "Create a FastAPI project with auth"`
-- `ai fix runs/some-run.json`
-- `ai test projects/some-project-dir`
-
-### Implementation Sketch
-
-- Add `ai.py` or `cli.py` at the project root.
-- Use `argparse` or `typer` for a user-friendly CLI.
-- Map subcommands to:
-  - Orchestrator (build)
-  - Self-repair (fix; implemented later)
-  - Test/verification flows
+Follow-up:
+- Maintain a growing regression suite per project.
+- Allow future runs to execute prior tests before proceeding.
 
 ---
 
-## 7. Web Dashboard for Runs and Projects
+## Phase 4: Persistent Memory + Resume Semantics
 
-A web UI will dramatically improve observability and usability.
+### 4. Long-Term Project Memory
+**Purpose:** Enable true stop/resume without context loss.
 
-### Goals
+Artifacts per project:
+- Compact session summary
+- Step history index
+- Prior PR links
+- Test inventory
+- Known constraints / invariants
 
-- Display runs, projects, reviews, and logs in a browser.
-- Allow manual triggers (re-run, repair, test).
-- Show agent reasoning and actions in a timeline view.
-
-### Features
-
-- Runs list:
-  - Status (success/fail/needs repair)
-  - Goal
-  - Timestamp
-- Project view:
-  - Link to project directory.
-  - Rendered PROJECT_INFO.json (goal, plan, review, how_to_test).
-- Logs:
-  - Filterable by agent (Planner/Worker/Reviewer/Orchestrator).
-  - Search by keyword.
-
-### Implementation Ideas
-
-- Lightweight FastAPI app serving:
-  - A simple frontend (React, Svelte, or plain HTML).
-  - JSON APIs to read `runs/`, `projects/`, and `logs/`.
-- Optional integration with editor (VS Code, etc.) via links.
+Effect:
+- New runs start with summaries, not full history.
+- Token usage remains bounded.
+- Behavior approaches “Codex-style” continuity.
 
 ---
 
-## 8. Test Suite for Agents and Tools
+## Phase 5: RDM Builds & Markets Itself
 
-Unit tests and integration tests are essential once the system stabilizes.
+### 5. Marketing & Growth Pipeline (Do Not Forget)
+**Purpose:** RDM is not just a tool—it’s a product.
 
-### Goals
+Planned capabilities:
+- RDM-generated marketing sites
+- Case studies from real runs
+- Landing pages, blog posts, docs
+- Automated demos / sandboxes
+- SEO + content generation workflows
 
-- Ensure Planner, Worker, Reviewer, and Orchestrator behave as expected.
-- Avoid regressions when prompts or code change.
-- Safely validate tool layer behavior.
-
-### Tests to Add
-
-- Planner tests:
-  - Given a goal, returns valid JSON with steps.
-  - Steps are non-empty and ordered.
-- Worker tests (with mocked OpenAI responses):
-  - Executes simple tool calls or commands.
-  - Handles `ask_human` logic safely.
-- Reviewer tests:
-  - Produces valid JSON with required keys.
-  - Handles missing or partial inputs.
-- Orchestrator tests:
-- Orchestrates a synthetic plan and stores outputs correctly.
-  - Writes PROJECT_INFO.json and run summaries.
+Key principle:
+> The same PR-per-step, test-backed, review-gated workflow used for clients
+> must also be used to build and market RDM itself.
 
 ---
 
-## 9. Multi-Agent Parallelism and Specialization
+## Guiding Principles
+- PRs are truth.
+- Small steps, always reviewable.
+- Deterministic safety before AI judgment.
+- Autonomy is earned, not assumed.
+- RDM should eventually be able to explain itself to humans.
 
-As complexity grows, different agent specializations and parallel execution become valuable.
-
-### Possible Specialized Agents
-
-- Frontend worker (React, CSS, UI).
-- Backend worker (APIs, databases).
-- DevOps worker (CI/CD, deployments, observability).
-- Security reviewer (vulnerabilities, secrets, hardening).
-- Performance reviewer (latency, resource usage patterns).
-
-### Parallel Execution
-
-- Planner splits work into parallelizable chunks.
-- Orchestrator spins multiple Worker instances in parallel.
-- Reviewer aggregates and integrates results.
-
----
-
-## 10. Production-Grade Migration and Hardening
-
-Once the system is robust and useful, prepare it for real workloads.
-
-### Steps
-
-- Harden security:
-  - Strict filesystem boundaries.
-  - Strict command allowlists.
-  - Strong isolation between agent framework and target projects.
-- Observability:
-  - Structured logging (JSON logs).
-  - Metrics for runs, durations, failures, and repairs.
-- Deployment options:
-  - As a local dev tool (current behavior).
-  - As a service accessible over an internal API.
-  - Optionally as a cloud-hosted orchestrator with local workers.
-
----
-
-## Summary
-
-This roadmap focuses on:
-
-- Tooling and safety (structured tools, DockerOps, test suite).
-- Scalability (server-side Planner/Reviewer, multi-agent parallelism).
-- UX (unified CLI, dashboard).
-- Production readiness (security, observability, deployment).
-
-Steps for self-repair loops and memory are being designed and implemented separately, but this roadmap provides the broader direction for turning the current system into a robust, production-ready AI engineering platform.
