@@ -42,6 +42,10 @@ def _normalize_patterns(patterns: list[str]) -> list[str]:
     return [_normalize_path(pat) for pat in patterns]
 
 
+def _expand_allowlist_patterns(patterns: list[str], project_id: str) -> list[str]:
+    return [pattern.replace("<project_id>", project_id) for pattern in patterns]
+
+
 def _matches_any(path: str, patterns: list[str]) -> bool:
     return any(fnmatch(path, pattern) for pattern in patterns)
 
@@ -72,7 +76,7 @@ def _build_gate_config(project_id: str) -> dict[str, Any]:
 
     return {
         "allowlist_enabled": allowlist_enabled,
-        "allowlist": _normalize_patterns(allowlist),
+        "allowlist": _expand_allowlist_patterns(_normalize_patterns(allowlist), project_id),
         "hard_stop_paths": _normalize_patterns(hard_stop_paths),
         "hard_stop_patterns": hard_stop_patterns,
         "max_files": max_files,
@@ -97,8 +101,7 @@ def evaluate_merge_gate(
 
     if config["allowlist_enabled"]:
         for path in normalized_paths:
-            scoped = f"projects/{project_id}/{path}"
-            if not _matches_any(path, config["allowlist"]) and not _matches_any(scoped, config["allowlist"]):
+            if not _matches_any(path, config["allowlist"]):
                 violations["manual"].append(f"Path not in allowlist: {path}")
 
     for path in normalized_paths:
@@ -163,6 +166,52 @@ def evaluate_merge_gate(
 
 def format_gate_report(report: dict[str, Any]) -> str:
     return json.dumps(report, indent=2, sort_keys=False)
+
+
+def _sanity_check_allowlist() -> dict[str, str]:
+    project_id = "sample"
+    prev_allowlist = os.environ.get("RDM_MERGE_ALLOWLIST")
+    prev_enabled = os.environ.get("RDM_MERGE_ALLOWLIST_ENABLED")
+
+    os.environ["RDM_MERGE_ALLOWLIST"] = "projects/<project_id>/**"
+    os.environ["RDM_MERGE_ALLOWLIST_ENABLED"] = "true"
+
+    try:
+        outside = evaluate_merge_gate(
+            project_id=project_id,
+            file_paths=["utils/github_publisher.py"],
+            diff_text="",
+            additions=0,
+            deletions=0,
+        )
+        inside = evaluate_merge_gate(
+            project_id=project_id,
+            file_paths=[f"projects/{project_id}/foo.txt"],
+            diff_text="",
+            additions=0,
+            deletions=0,
+        )
+        return {
+            "outside_decision": outside.get("decision", ""),
+            "inside_decision": inside.get("decision", ""),
+        }
+    finally:
+        if prev_allowlist is None:
+            os.environ.pop("RDM_MERGE_ALLOWLIST", None)
+        else:
+            os.environ["RDM_MERGE_ALLOWLIST"] = prev_allowlist
+
+        if prev_enabled is None:
+            os.environ.pop("RDM_MERGE_ALLOWLIST_ENABLED", None)
+        else:
+            os.environ["RDM_MERGE_ALLOWLIST_ENABLED"] = prev_enabled
+
+
+if __name__ == "__main__":
+    results = _sanity_check_allowlist()
+    print("Merge gate allowlist sanity check:")
+    print(f"- utils/github_publisher.py decision: {results['outside_decision']}")
+    print(f"- projects/<id>/foo.txt decision: {results['inside_decision']}")
 
 
 __all__ = ["evaluate_merge_gate", "format_gate_report"]
