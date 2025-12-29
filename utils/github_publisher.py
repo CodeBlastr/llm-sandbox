@@ -6,6 +6,7 @@ from urllib.parse import urlparse, urlunparse
 
 from utils.github_client import GitHubClientError, create_pull_request, get_repo_info, merge_pull_request
 from utils.logger import log
+from utils.merge_gate import evaluate_merge_gate, format_gate_report
 
 
 def _run_git(args: list[str], project_dir: Path) -> subprocess.CompletedProcess:
@@ -127,6 +128,7 @@ def _build_pr_body(
     step_id: str,
     commands: list[str],
     files: list[str],
+    gate_report: dict,
 ) -> str:
     lines = [
         f"Run Number: {run_number}",
@@ -147,6 +149,19 @@ def _build_pr_body(
         lines.extend([f"- {path}" for path in files])
     else:
         lines.append("- (none)")
+
+    lines.append("")
+    lines.append("Auto-Merge Gate Report:")
+    lines.append(f"Decision: {gate_report.get('decision')}")
+    lines.append(f"Eligible: {gate_report.get('eligible')}")
+    reasons = gate_report.get("reasons") or []
+    if reasons:
+        lines.append("Reasons:")
+        lines.extend([f"- {reason}" for reason in reasons])
+    lines.append("")
+    lines.append("```json")
+    lines.append(format_gate_report(gate_report))
+    lines.append("```")
 
     return "\n".join(lines)
 
@@ -248,6 +263,40 @@ def publish_step_pr(
         }
 
     project_id = project_dir.name
+    numstat = _run_git(["diff", "--cached", "--numstat"], project_dir)
+    if numstat.returncode != 0:
+        return _blocked(f"Git diff --numstat failed for step {step_label}: {numstat.stderr}")
+
+    additions = 0
+    deletions = 0
+    binary_files: list[str] = []
+    for line in numstat.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        added, deleted, path = parts[0], parts[1], parts[2]
+        if added == "-" or deleted == "-":
+            binary_files.append(path)
+            continue
+        try:
+            additions += int(added)
+            deletions += int(deleted)
+        except ValueError:
+            continue
+
+    diff_text = _run_git(["diff", "--cached"], project_dir)
+    if diff_text.returncode != 0:
+        return _blocked(f"Git diff text failed for step {step_label}: {diff_text.stderr}")
+
+    gate_report = evaluate_merge_gate(
+        project_id=project_id,
+        file_paths=files,
+        diff_text=diff_text.stdout,
+        additions=additions,
+        deletions=deletions,
+        binary_files=binary_files,
+    )
+
     title = f"{project_id} - Run {run_label} / Step {step_label} - {_short_goal(description)}"
     commit = _run_git(["commit", "-m", title], project_dir)
     if commit.returncode != 0:
@@ -277,7 +326,7 @@ def publish_step_pr(
         repo_info = get_repo_info(owner, repo)
         base_branch = repo_info.get("default_branch") or "main"
         commands = _summarize_commands(worker_history)
-        body = _build_pr_body(run_label, session_id, step_label, commands, files)
+        body = _build_pr_body(run_label, session_id, step_label, commands, files, gate_report)
         pr = create_pull_request(
             owner=owner,
             repo=repo,
@@ -317,6 +366,11 @@ def publish_step_pr(
         result["status"] = "awaiting_manual_approval"
         result["should_stop"] = True
         return result
+
+    decision = gate_report.get("decision")
+    if decision != "auto_merge_ok":
+        gate_reason = ", ".join(gate_report.get("reasons") or []) or "Auto-merge gate failed."
+        return _blocked(f"Auto-merge gate {decision}: {gate_reason}")
 
     if pr_number is None:
         return _blocked("Missing PR number from GitHub response.")
