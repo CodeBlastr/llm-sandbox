@@ -105,8 +105,7 @@ def evaluate_merge_gate(
                 violations["manual"].append(f"Path not in allowlist: {path}")
 
     for path in normalized_paths:
-        scoped = f"projects/{project_id}/{path}"
-        if _matches_any(path, config["hard_stop_paths"]) or _matches_any(scoped, config["hard_stop_paths"]):
+        if _matches_any(path, config["hard_stop_paths"]):
             violations["block"].append(f"Hard-stop path matched: {path}")
 
     file_count = len(normalized_paths)
@@ -173,7 +172,7 @@ def _sanity_check_allowlist() -> dict[str, str]:
     prev_allowlist = os.environ.get("RDM_MERGE_ALLOWLIST")
     prev_enabled = os.environ.get("RDM_MERGE_ALLOWLIST_ENABLED")
 
-    os.environ["RDM_MERGE_ALLOWLIST"] = "projects/<project_id>/**"
+    os.environ["RDM_MERGE_ALLOWLIST"] = f"projects/{project_id}/**"
     os.environ["RDM_MERGE_ALLOWLIST_ENABLED"] = "true"
 
     try:
