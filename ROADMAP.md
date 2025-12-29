@@ -1,130 +1,132 @@
-# RDM – Roadmap
+# RDM — Roadmap
 
-This roadmap is ordered to maximize safety first, autonomy second, and growth third.
-
----
-
-## Phase 1: Safe Autonomy (Current Focus)
-
-### 1. Auto-Merge Safety Gates (Deterministic)
-**Purpose:** Prevent catastrophic merges before adding more AI autonomy.
-
-Planned rules:
-- Path allowlist:
-  - Auto-merge ONLY if all changes are within:
-    - `projects/<id>/`
-    - (optionally) `projects/<id>/output/`
-    - plus known metadata files (e.g., PROJECT_INFO.json)
-- Hard-stop paths:
-  - `/agents`, `/utils`, root infra, auth/secrets → manual only
-- Diff thresholds:
-  - Max files changed
-  - Max lines added/removed
-- Hard-stop patterns:
-  - secrets
-  - destructive shell commands
-  - env / credential manipulation
-
-Outcome:
-- `auto` mode is safe to leave running.
-- `manual` mode remains available as override.
+This roadmap prioritizes **safety → autonomy → scalability → growth**.
 
 ---
 
-## Phase 2: PR Review Agent (AI Gate)
+## Phase 0 (Completed): Core PR-Driven Execution
+✅ Repo auto-creation  
+✅ One PR per step  
+✅ PRs as audit log  
+✅ Stop/resume via GitHub state  
+✅ Auto vs manual approval modes  
 
-### 2. AI PR Reviewer (Diff-Only)
-**Purpose:** Catch logic issues and risky behavior beyond static rules.
+---
 
-Design:
-- Runs ONLY after deterministic gates pass.
+## Phase 1 (Mostly Complete): Deterministic Safety Gates
+**Goal:** Safe unattended execution
+
+### Completed
+- Path allowlist (repo-root relative)
+- Hard-stop paths
+- Diff thresholds
+- Hard-stop pattern scanning
+- Structured gate report
+- Auto-merge only when gates pass
+
+### Remaining (minor)
+- Policy tuning (manual vs block distinctions)
+- CI enforcement via tests (see Phase 1.5)
+
+---
+
+## Phase 1.5 (Next Focus): Test Foundation 🧪
+**Goal:** Make the system refactorable without fear
+
+### Tasks
+- Introduce pytest test framework
+- Unit tests for:
+  - `utils/merge_gate.py`
+  - `utils/github_publisher.py`
+- Guardrail tests:
+  - allowlist cannot be bypassed
+  - auto-merge never fires when gate fails
+  - manual mode never attempts merge
+- Optional: minimal CI workflow
+
+**Outcome**
+- Deterministic behavior is locked
+- Future changes are safe
+- PR review ambiguity is eliminated
+
+---
+
+## Phase 2: AI PR Review Agent
+**Goal:** Catch logic & safety issues beyond static rules
+
+### Design
+- Runs **only after deterministic gates pass**
 - Consumes:
   - PR diff
   - file list
-  - policy results
-- Outputs structured JSON:
-  - decision: approve | manual_required | block
-  - risk level
-  - notes + checklist
-
-Behavior:
-- Posts review as a PR comment.
+  - gate report
+- Outputs structured decision:
+  - approve | manual_required | block
+- Posts review as PR comment
 - Auto-merge proceeds only if:
-  - mode=auto
-  - decision=approve
+  - approval_mode=auto
+  - AI decision=approve
 
-Optional:
-- Pluggable reviewer backend (OpenAI, Claude, etc.)
-- Controlled via env var: `RDM_PR_REVIEW=on|off`
+### Controls
+- `RDM_PR_REVIEW=on|off`
+- Pluggable LLM backend
 
 ---
 
 ## Phase 3: Test Writer + Regression Safety
+**Goal:** Prevent silent breakage across runs
 
-### 3. Test Writer Agent (Per-PR)
-**Purpose:** Ensure new steps don’t silently break prior functionality.
-
-Strategy:
-- Each PR may trigger a **Test Writer Agent** that:
-  - Generates or updates tests relevant to the change
-  - Writes tests adjacent to project output
+### Features
+- Test Writer Agent per PR
 - Tests are:
-  - Minimal
-  - Fast
-  - Focused on contract/regression, not perfection
-
-Policies:
-- Small/simple PRs → tests optional
-- Multi-step or stateful PRs → tests required
-- Missing tests in auto mode → downgrade to manual approval
-
-Follow-up:
-- Maintain a growing regression suite per project.
-- Allow future runs to execute prior tests before proceeding.
+  - minimal
+  - fast
+  - contract-focused
+- Policy driven:
+  - small PR → tests optional
+  - stateful/multi-step → tests required
+- Auto mode downgrades to manual if required tests are missing
+- Prior tests run before advancing steps
 
 ---
 
-## Phase 4: Persistent Memory + Resume Semantics
+## Phase 4: Persistent Memory & Resume Semantics
+**Goal:** True long-term continuity with bounded tokens
 
-### 4. Long-Term Project Memory
-**Purpose:** Enable true stop/resume without context loss.
-
-Artifacts per project:
+### Artifacts per project
 - Compact session summary
 - Step history index
-- Prior PR links
+- PR link index
 - Test inventory
 - Known constraints / invariants
 
-Effect:
-- New runs start with summaries, not full history.
-- Token usage remains bounded.
-- Behavior approaches “Codex-style” continuity.
+### Outcome
+- New runs load summaries, not full history
+- Token usage stays bounded
+- Behavior approaches Codex-style continuity
 
 ---
 
 ## Phase 5: RDM Builds & Markets Itself
+**Goal:** RDM as a product, not just a tool
 
-### 5. Marketing & Growth Pipeline (Do Not Forget)
-**Purpose:** RDM is not just a tool—it’s a product.
-
-Planned capabilities:
-- RDM-generated marketing sites
+### Capabilities
+- RDM-generated marketing site
 - Case studies from real runs
-- Landing pages, blog posts, docs
-- Automated demos / sandboxes
-- SEO + content generation workflows
+- Docs, blogs, landing pages
+- Demo sandboxes
+- SEO + content workflows
 
-Key principle:
-> The same PR-per-step, test-backed, review-gated workflow used for clients
+### Principle
+> The same PR-per-step, test-backed, review-gated workflow used for clients  
 > must also be used to build and market RDM itself.
 
 ---
 
-## Guiding Principles
-- PRs are truth.
-- Small steps, always reviewable.
-- Deterministic safety before AI judgment.
-- Autonomy is earned, not assumed.
-- RDM should eventually be able to explain itself to humans.
-
+## Guiding Principles (Do Not Regress)
+- PRs are truth
+- Tests are contracts
+- Deterministic gates before AI judgment
+- Small steps, always reviewable
+- Autonomy is earned
+- RDM must be able to explain itself

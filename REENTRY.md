@@ -1,65 +1,81 @@
-# RDM – Reentry Context
-NOTE TO SELF : I deleted all the test repos that were made from the working github connection. 
+# RDM — Reentry Context
 
+## Immediate Context
+I paused work after implementing **Phase 1 Auto-Merge Safety Gates** and beginning the transition away from ad-hoc “vibe coding” toward **test-backed, refactor-safe development**.
 
-## What This Project Is
-RDM (Rapid Deployment Machine) is an agentic system that:
-- Creates a GitHub repo per project
-- Executes work in discrete steps
-- Commits each step to its own branch
-- Opens **one PR minimum per step**
-- Uses PRs as the authoritative execution log
-- Supports auto-merge or manual approval via env config
+The last active PR was:
+- PR #5 (llm-sandbox): Phase 1 merge gate implementation + fixes
 
-The long-term goal is an autonomous-but-safe system that can:
-- Build software projects
-- Preserve state across restarts
-- Be auditable via GitHub PR history
-- Eventually build and market itself
+There was confusion during review because GitHub PR diffs were updated multiple times and relying on “PR changes view” alone was insufficient. Final state must always be verified via the **current file at HEAD**, not just diffs.
+
+Key takeaway:
+> PRs are truth — but the *final file state* is the operational truth.
 
 ---
 
-## Current State (as of last session)
+## Current System State
 
-### ✅ Working
-- GitHub repos are created automatically (private).
-- One PR is created **per step**.
-- PR titles and branches use **Run N / Step M** naming:
-  - PR title: `<project> — Run <n> / Step <m> — <short goal>`
-  - Branch: `rdm/run-<n>-step-<m>-<slug>`
-- PR body includes:
+### ✅ Implemented & Working
+- **One PR per step** (minimum)
+- PRs are the authoritative execution/audit log
+- Repo auto-creation (private)
+- Branch + PR naming convention:
+  - `rdm/run-<n>-step-<m>-<slug>`
+- PR bodies include:
   - session_id
-  - run number
-  - step number
+  - run #
+  - step #
   - commands executed
   - files changed
-- `RDM_PR_APPROVAL_MODE=auto|manual` exists:
-  - `manual` → open PR, stop, wait
-  - `auto` → attempt merge, stop if blocked
-- Merge-blocked behavior (conflicts, etc.) works correctly.
-- `.env` loading is supported at orchestrator startup (project-level first, then repo root).
+  - auto-merge gate report
+- `RDM_PR_APPROVAL_MODE=auto|manual`
+  - `manual` → open PR, stop
+  - `auto` → attempt merge only if gates pass
+- Merge-blocked behavior stops execution correctly
+- `.env` loading works (project-level, then repo root)
 
-### ❌ Not Implemented Yet
-- Auto-merge safety gates (path allowlist, diff limits, hard stops).
-- AI-based PR review before auto-merge.
-- Test generation per PR.
-- Persistent test execution / regression protection.
-- Marketing / growth pipeline for RDM itself.
+### ✅ Phase 1: Deterministic Auto-Merge Gates
+Implemented in `utils/merge_gate.py`:
+- Path allowlist (repo-root relative)
+- Hard-stop paths
+- Diff thresholds (files changed, lines added/removed)
+- Hard-stop pattern scanning (diff text)
+- Structured gate report persisted to PR body
+- `eligible` flag computed consistently
+- **Scoped path laundering bug is removed**
+
+### ⚠️ Process Gap Identified
+- PR diff review alone is insufficient for safety verification
+- Must verify:
+  - final file state (`git show HEAD:...`)
+  - or enforce via tests
 
 ---
 
-## Key Design Decisions So Far
-- **PRs are the primary audit log**, not conversation history.
-- State must persist across restarts (run counters, summaries, PRs).
-- Auto mode must be safe enough to run unattended.
-- Agent roles should be small, composable, and policy-driven.
-- Avoid sending full codebases to the LLM; use diff- and retrieval-first approaches.
+## Strategic Shift (Important)
+At this point the codebase is becoming **unwieldy without tests**.
+
+Decision made:
+> Stop expanding features temporarily and **lock in behavior with tests** so future refactors are safe.
+
+Testing is now a **first-class requirement**, not a follow-up.
 
 ---
 
-## Open Questions to Resume With
-- How strict should auto-merge gates be?
-- Should AI PR review be required or optional?
-- When should test-writing be mandatory vs best-effort?
-- How do we prevent token usage from exploding as projects grow?
+## Next Session — Immediate Goals
+1. Add pytest-based test suite
+2. Write **guardrail tests** for:
+   - merge gate logic
+   - auto vs manual merge behavior
+3. Refactor merge gate (if needed) only after tests are in place
+4. Establish a repeatable pattern:  
+   **feature → test → refactor → continue**
 
+---
+
+## Mental Model to Resume With
+- PRs are truth
+- Tests are contracts
+- Gates must be deterministic
+- AI reviewers come *after* deterministic safety
+- Autonomy is earned incrementally
